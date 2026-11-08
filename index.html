@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#070d18" />
+  <meta name="description" content="Starfire Engine — a custom, open-source browser 3D engine. Explore the first WebGPU/WebGL 2 technical demo." />
+  <title>Starfire Engine — v0.1.0-alpha.1</title>
+  <link rel="stylesheet" href="./demo/styles.css" />
+</head>
+<body>
+  <canvas id="world" aria-label="Interactive 3D Starfire Engine scene. Drag to orbit, scroll to zoom."></canvas>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Starfire Engine home">
+      <span class="brand-icon" aria-hidden="true">✳</span>
+      <span class="brand-lines"><strong>STARFIRE</strong><small>ENGINE / ALPHA</small></span>
+    </a>
+    <span class="build"><span class="build-dot"></span> EXPERIMENTAL BUILD <span class="build-id">0.1.0-alpha.1</span></span>
+    <span class="topright">100% OPEN SOURCE <span class="hidden-small">· APACHE 2.0</span></span>
+  </header>
+  <main>
+    <section class="hero" aria-label="Introduction">
+      <div class="eyebrow"><span class="line"></span> GRAPHICS ENGINE / TECHNICAL PREVIEW</div>
+      <h1>Build the <em>unimaginable.</em></h1>
+      <p>An original 3D rendering engine built for the open web. Custom GPU pipelines. Reusable scene systems. No rendering frameworks.</p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="./src/index.js" target="_blank" rel="noopener noreferrer" id="sourceLink">VIEW SOURCE <span>↗</span></a>
+        <span class="hint">DRAG TO ORBIT <span>•</span> SCROLL TO ZOOM</span>
+      </div>
+    </section>
+    <section class="stats" aria-label="Engine telemetry">
+      <div class="panel-heading"><span class="status-pulse"></span> ENGINE TELEMETRY <span class="panel-corner">LIVE</span></div>
+      <div class="stat-grid">
+        <div class="stat"><label>RENDER BACKEND</label><strong id="renderer">BOOTING</strong></div>
+        <div class="stat"><label>FRAMERATE</label><strong><span id="fps">—</span><small> FPS</small></strong></div>
+        <div class="stat"><label>SCENE ENTITIES</label><strong id="entities">—</strong></div>
+        <div class="stat"><label>DRAW CALLS</label><strong id="drawcalls">—</strong></div>
+        <div class="stat"><label>TRIANGLES</label><strong id="triangles">—</strong></div>
+      </div>
+      <div class="panel-bottom"><span>STATUS</span><strong id="engineStatus">Initializing engine</strong></div>
+    </section>
+    <section class="toolbar" aria-label="Demo controls">
+      <div class="toolbar-label">SCENE CONTROLS</div>
+      <button type="button" id="pauseBtn">II <span>PAUSE ANIMATION</span></button>
+      <button type="button" id="resetBtn">⟲ <span>RESET CAMERA</span></button>
+      <label class="renderer-select">BACKEND
+        <select id="backendSelect" aria-label="Rendering backend">
+          <option value="auto">AUTO</option>
+          <option value="webgpu">WEBGPU</option>
+          <option value="webgl2">WEBGL 2</option>
+        </select>
+      </label>
+    </section>
+  </main>
+  <footer class="footer">
+    <span>STARFIRE ENGINE <span class="separator">/</span> ENGINE DEMONSTRATION 001</span>
+    <span>© 2026 STARFIRE ENGINE CONTRIBUTORS</span>
+  </footer>
+  <div id="error" class="error" role="alert" hidden></div>
+  <script type="module" src="./demo/main.js"></script>
+</body>
+</html>

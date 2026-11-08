@@ -1,0 +1,22 @@
+{
+  "name": "@starfire/engine",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "An experimental, dependency-free 3D rendering and scene engine for the web.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=20" },
+  "exports": {
+    ".": "./src/index.js",
+    "./math": "./src/math/index.js",
+    "./geometry": "./src/geometry/primitives.js"
+  },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.mjs",
+    "ci": "npm run check && npm test"
+  },
+  "keywords": ["webgpu", "webgl2", "3d", "graphics", "game-engine", "open-source"]
+}
