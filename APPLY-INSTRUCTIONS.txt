@@ -1,0 +1,27 @@
+Starfire Engine v0.2.0 PR01 — Core Stability & Security
+
+This is a source patch for the current public main branch, NOT a release.
+Work in a new branch and review changes before merging.
+
+Windows PowerShell:
+
+  cd "$HOME\Documents\starfire-engine"
+  git switch main
+  git pull --ff-only origin main
+  git switch -c feat/v0.2.0-core-stability
+  Expand-Archive "$HOME\Downloads\starfire-v0.2.0-pr01.zip" "$HOME\Downloads\starfire-pr01" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr01\src" "." -Recurse -Force
+  Copy-Item "$HOME\Downloads\starfire-pr01\scripts" "." -Recurse -Force
+  Copy-Item "$HOME\Downloads\starfire-pr01\tests" "." -Recurse -Force
+  Copy-Item "$HOME\Downloads\starfire-pr01\docs" "." -Recurse -Force
+  npm run ci
+  git diff --check
+  git status
+  git add src scripts tests docs/V0.2.0-PR01-CORE-STABILITY.md
+  git commit -m "fix: harden engine startup, WebGPU, and demo server"
+  git push -u origin feat/v0.2.0-core-stability
+
+Then create a Pull Request into main through GitHub.
+
+NOTE: If the old WebGPU hotfix has already been applied locally, that's okay; these files include its fixes and tests.
+Do not move the existing v0.1.0-alpha.1 tag.

@@ -27,11 +27,14 @@ export class Engine {
     const options = { renderer, pixelRatioCap };
     const errors = [];
     if (options.renderer !== 'webgl2') {
+      const gpuRenderer = new WebGPURenderer(canvas, pixelRatioCap);
       try {
-        const gpuRenderer = new WebGPURenderer(canvas, pixelRatioCap);
         await gpuRenderer.initialize();
         return new Engine(canvas, gpuRenderer);
       } catch (error) {
+        // Initialization can allocate GPU buffers before shaders are validated.
+        // Release partial resources before attempting WebGL 2 fallback.
+        try { gpuRenderer.dispose(); } catch { /* Keep the original startup error. */ }
         errors.push(error);
         if (options.renderer === 'webgpu') throw error;
       }
