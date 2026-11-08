@@ -57,10 +57,19 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   let world = object.model * vec4<f32>(input.position, 1.0);
   out.clipPosition = camera.viewProjection * world;
   out.worldPosition = world.xyz;
-  // Inverse-transpose produces correct normals for nonuniform scaling.
-  out.worldNormal = transpose(inverse(mat3x3<f32>(
-    object.model[0].xyz, object.model[1].xyz, object.model[2].xyz
-  ))) * input.normal;
+  // WGSL does not provide inverse(). Compute the normal cofactor matrix
+  // directly; its magnitude cancels when normalized in the fragment shader.
+  // Account for mirrored (negative-determinant) transforms.
+  let c0 = object.model[0].xyz;
+  let c1 = object.model[1].xyz;
+  let c2 = object.model[2].xyz;
+  let cofactors = mat3x3<f32>(
+    cross(c1, c2),
+    cross(c2, c0),
+    cross(c0, c1)
+  );
+  let orientation = select(-1.0, 1.0, dot(c0, cross(c1, c2)) >= 0.0);
+  out.worldNormal = (cofactors * input.normal) * orientation;
   return out;
 }
 @fragment

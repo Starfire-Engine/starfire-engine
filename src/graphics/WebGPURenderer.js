@@ -60,10 +60,13 @@ export class WebGPURenderer {
     const dpr = Math.min(this.pixelRatioCap, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const h = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
-    if (this.canvas.width === w && this.canvas.height === h) return;
-    this.canvas.width = w;
-    this.canvas.height = h;
-    this.context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
+    const sizeChanged = this.canvas.width !== w || this.canvas.height !== h;
+    if (!sizeChanged && this.depthTexture) return;
+    if (sizeChanged) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      this.context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
+    }
     this.depthTexture?.destroy();
     this.depthTexture = this.device.createTexture({
       size: [w, h], format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT
