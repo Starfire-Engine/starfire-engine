@@ -18,8 +18,8 @@ The following assumes you've downloaded the ZIP release package and already have
 
 ```powershell
 cd "$HOME\Documents"
-git clone https://github.com/YOUR-ORG/YOUR-REPO.git
-cd YOUR-REPO
+git clone https://github.com/Starfire-Engine/starfire-engine.git
+cd starfire-engine
 ```
 
 3. Extract the archive into a separate folder (replace the path if your downloads are elsewhere):
@@ -68,7 +68,7 @@ On GitHub → **Releases** → **Draft a new release**, select `v0.1.0-alpha.1`,
 
 ## Optional static demo hosting
 
-GitHub repository → **Settings** → **Pages** → Build and deployment → **Deploy from a branch** → choose the default branch and `/ (root)` → Save. For a project repository, the URL is usually `https://YOUR-ORG.github.io/YOUR-REPO/` unless a custom domain is configured.
+GitHub repository → **Settings** → **Pages** → Build and deployment → **Deploy from a branch** → choose the default branch and `/ (root)` → Save. For a project repository, the URL is usually `https://starfire-engine.github.io/starfire-engine/` unless a custom domain is configured.
 
 The demo uses relative ES module imports so a repository subpath works without a build step. Pages availability/policies depend on repository visibility and GitHub plan.
 

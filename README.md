@@ -43,12 +43,12 @@ No `npm install` is required: this pre-alpha intentionally uses **zero third-par
 ## Quick start
 
 ```bash
-git clone https://github.com/ORG/REPO.git
-cd REPO
+git clone https://github.com/Starfire-Engine/starfire-engine.git
+cd starfire-engine
 npm run dev
 ```
 
-Replace `ORG/REPO` with the published repository URL. Then open **http://localhost:5173**.
+Then open **http://localhost:5173**.
 
 To run checks:
 
