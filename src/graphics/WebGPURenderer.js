@@ -2,6 +2,9 @@ import { shaderWGSL } from './shaders.js';
 import { prepareGeometry } from '../geometry/Geometry.js';
 import { GeometryResourceCache } from './GeometryResourceCache.js';
 import { collectRenderables } from './RenderQueue.js';
+import { Texture2D } from './Texture2D.js';
+import { TextureSampler } from './TextureSampler.js';
+import { TextureResourceCache } from './TextureResourceCache.js';
 
 const MAX_OBJECTS = 2048;
 const OBJECT_STRIDE = 256; // WebGPU dynamic uniform offsets must respect 256-byte alignment.
@@ -15,6 +18,9 @@ export class WebGPURenderer {
       resource.vertexBuffer.destroy();
       resource.indexBuffer.destroy();
     });
+    this.textureCache = new TextureResourceCache((resource) => resource.texture.destroy());
+    this.samplerCache = new Map();
+    this.fallbackTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]));
     this.drawCalls = 0;
     this.triangles = 0;
     this.lost = false;
@@ -37,12 +43,16 @@ export class WebGPURenderer {
       { binding: 0, resource: { buffer: this.cameraBuffer } },
       { binding: 1, resource: { buffer: this.objectBuffer, offset: 0, size: 80 } }
     ] });
+    this.textureBindGroupLayout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
+    ] });
     const module = device.createShaderModule({ code: shaderWGSL });
     const info = await module.getCompilationInfo();
     const errors = info.messages.filter((message) => message.type === 'error');
     if (errors.length) throw new Error(`WGSL compilation error: ${errors.map((e) => e.message).join('; ')}`);
     this.pipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout, this.textureBindGroupLayout] }),
       vertex: {
         module, entryPoint: 'vertexMain',
         buffers: [{ arrayStride: 32, attributes: [
@@ -96,6 +106,67 @@ export class WebGPURenderer {
       }
     });
   }
+  /** Upload an image or RGBA byte array; cache is per renderer/device. */
+  getTexture(texture) {
+    return this.textureCache.get(texture, () => {
+      const device = this.device;
+      const gpuTexture = device.createTexture({
+        size: [texture.width, texture.height, 1],
+        format: texture.colorSpace === 'srgb' ? 'rgba8unorm-srgb' : 'rgba8unorm',
+        mipLevelCount: 1,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+      });
+      try {
+        if (texture.data) {
+          // Padded rows are valid for writeTexture on all implementations.
+          const stride = texture.width * 4;
+          const aligned = Math.ceil(stride / 256) * 256;
+          let bytes = texture.data;
+          if (aligned !== stride) {
+            bytes = new Uint8Array(aligned * texture.height);
+            for (let y = 0; y < texture.height; y++) {
+              bytes.set(texture.data.subarray(y * stride, (y + 1) * stride), y * aligned);
+            }
+          }
+          device.queue.writeTexture({ texture: gpuTexture }, bytes,
+            { bytesPerRow: aligned, rowsPerImage: texture.height },
+            { width: texture.width, height: texture.height, depthOrArrayLayers: 1 });
+        } else {
+          device.queue.copyExternalImageToTexture({ source: texture.image, flipY: false },
+            { texture: gpuTexture }, [texture.width, texture.height]);
+        }
+        return { texture: gpuTexture, view: gpuTexture.createView(), bindGroups: new Map() };
+      } catch (error) { gpuTexture.destroy(); throw error; }
+    });
+  }
+  getSampler(sampler = TextureSampler.DEFAULT) {
+    if (!(sampler instanceof TextureSampler)) throw new TypeError('Expected TextureSampler');
+    if (!this.samplerCache.has(sampler.key)) {
+      this.samplerCache.set(sampler.key, this.device.createSampler({
+        addressModeU: sampler.wrapU, addressModeV: sampler.wrapV,
+        minFilter: sampler.minFilter, magFilter: sampler.magFilter,
+        mipmapFilter: 'nearest', maxAnisotropy: 1
+      }));
+    }
+    return this.samplerCache.get(sampler.key);
+  }
+  getMaterialBindGroup(material) {
+    // Browser initialize() establishes the texture layout; older tests stub only geometry.
+    if (!this.textureBindGroupLayout) return null;
+    const texture = material.baseColorTexture ?? this.fallbackTexture;
+    const sampler = material.sampler ?? TextureSampler.DEFAULT;
+    const resource = this.getTexture(texture);
+    if (!resource.bindGroups.has(sampler.key)) {
+      resource.bindGroups.set(sampler.key, this.device.createBindGroup({
+        layout: this.textureBindGroupLayout,
+        entries: [
+          { binding: 0, resource: resource.view },
+          { binding: 1, resource: this.getSampler(sampler) }
+        ]
+      }));
+    }
+    return resource.bindGroups.get(sampler.key);
+  }
   render(scene, camera) {
     if (this.lost) throw new Error('WebGPU device lost; reload to reinitialize the renderer');
     this.resize();
@@ -107,6 +178,10 @@ export class WebGPURenderer {
     device.queue.writeBuffer(this.cameraBuffer, 0, uniforms);
     const meshes = collectRenderables(scene);
     this.cache.sweep(new Set(meshes.map((item) => item.geometry)));
+    this.textureCache.sweep(new Set([
+      this.fallbackTexture,
+      ...meshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean)
+    ]));
     if (meshes.length > MAX_OBJECTS) throw new Error(`Exceeded renderer draw limit of ${MAX_OBJECTS} objects`);
     const objects = new Float32Array((OBJECT_STRIDE / 4) * meshes.length);
     meshes.forEach((entity, index) => {
@@ -133,6 +208,8 @@ export class WebGPURenderer {
     meshes.forEach((entity, index) => {
       const buffer = this.getGeometry(entity.geometry);
       pass.setBindGroup(0, this.bindGroup, [index * OBJECT_STRIDE]);
+      const materialGroup = this.getMaterialBindGroup(entity.mesh.material);
+      if (materialGroup) pass.setBindGroup(1, materialGroup);
       pass.setVertexBuffer(0, buffer.vertexBuffer);
       pass.setIndexBuffer(buffer.indexBuffer, buffer.indexFormat);
       pass.drawIndexed(buffer.count);
@@ -144,6 +221,8 @@ export class WebGPURenderer {
   }
   dispose() {
     this.cache.clear();
+    this.textureCache.clear();
+    this.samplerCache.clear();
     this.depthTexture?.destroy();
     this.cameraBuffer?.destroy();
     this.objectBuffer?.destroy();

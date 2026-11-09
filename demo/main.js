@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, TextureSampler } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -12,9 +12,21 @@ $('backendSelect').addEventListener('change', (event) => {
   location.assign(url.toString());
 });
 
-function createScene() {
+async function createScene() {
   const scene = new Scene('Starfire Engine / Technical Preview');
   const box = createBox();
+  // PR 03: load an original, public test image once, then share it across meshes.
+  const textures = new TextureManager();
+  const gridTexture = await textures.load('/assets/textures/starfire-grid.png');
+  const repeatSampler = new TextureSampler({ wrapU: 'repeat', wrapV: 'repeat' });
+  const texturedBase = createPlane(2.80, 2.80);
+  const uv = texturedBase.getAttribute('uv').array;
+  for (let i = 0; i < uv.length; i++) uv[i] *= 2;
+  texturedBase.markDirty();
+  const tile = new Entity('Textured material preview').add('mesh', new Mesh(texturedBase,
+    new Material({ color: [1, 1, 1, 1], baseColorTexture: gridTexture, sampler: repeatSampler })));
+  tile.transform.position = [0, -0.47, 0];
+  scene.add(tile);
   const cube = (name, position, scale, color, rotation = [0, 0, 0]) => {
     const entity = new Entity(name).add('mesh', new Mesh(box, { color }));
     entity.transform.position = position;
@@ -34,7 +46,8 @@ function createScene() {
   const orbitPivot = scene.add(new Entity('Orbit pivot'));
   orbitPivot.transform.position = [0, 1.55, 0];
   const satellite = new Entity('Hierarchy satellite').add('mesh',
-    new Mesh(createSphere(.42, 28, 16), { color: [0.96, 0.66, 0.25, 1] }));
+    new Mesh(createSphere(.42, 28, 16),
+      new Material({ color: [1, 1, 1, 1], baseColorTexture: gridTexture, sampler: repeatSampler })));
   satellite.transform.position = [2.6, .25, 0];
   orbitPivot.addChild(satellite);
   const rings = [];
@@ -77,7 +90,7 @@ async function boot() {
       position: [10, 7, 13], target: [0, .65, 0], fov: 48, near: .1, far: 200
     });
     const controls = new OrbitControls(canvas, engine.camera, { distance: 16.5, azimuth: 0.54, elevation: 0.36 });
-    const scene = createScene();
+    const scene = await createScene();
     engine.scene = scene;
     $('renderer').textContent = engine.renderer.name.toUpperCase();
     $('engineStatus').textContent = 'All systems operational';

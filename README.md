@@ -106,12 +106,31 @@ The `development` branch is where new, unreleased features are prepared. PR 02 a
 - Parent/child entities, visibility inheritance, and quaternion-compatible transforms.
 - Shared geometry resource caching with automatic disposal when geometry stops being visible.
 - A shared render submission step for WebGPU and WebGL 2.
+- PR 03: browser image/byte-array textures, optional per-material base-color map, configurable samplers, texture caching/cleanup, and a textured public demo.
 
 The original `createBox()` typed-array geometry remains supported. This branch is not a
 new release: `package.json` retains the existing published version until tagging.
-PBR shading, glTF loading, textures and advanced shadows are **not** included in PR 02.
+PBR shading, glTF loading, and advanced shadows are **not** included yet; PR 03 adds basic color textures, not PBR.
 
-See [PR 02 implementation notes](docs/V0.2.0-PR02-RENDERING-GEOMETRY.md).
+See [PR 02 implementation notes](docs/V0.2.0-PR02-RENDERING-GEOMETRY.md) and [PR 03 textures and materials](docs/V0.2.0-PR03-TEXTURES-MATERIALS.md).
+
+## Texture preview (development branch)
+
+`npm run dev` serves an original textured material demonstration in both WebGPU and WebGL 2. The demo loads an image from `/assets/textures/starfire-grid.png` and shares it between a sphere and a plane.
+
+```js
+import { TextureManager, TextureSampler, Material, Mesh, createSphere } from './src/index.js';
+
+const texture = await new TextureManager().load('/assets/textures/starfire-grid.png');
+const material = new Material({
+  color: [1, 1, 1, 1],
+  baseColorTexture: texture,
+  sampler: new TextureSampler({ wrapU: 'repeat', wrapV: 'repeat' })
+});
+const mesh = new Mesh(createSphere(), material);
+```
+
+Texture support remains non-PBR (base color × texture, directional lighting); no mipmaps, alpha blending, compressed textures, or glTF support yet. The older `{ color: [...] }` material format remains valid.
 
 ## Contributing
 

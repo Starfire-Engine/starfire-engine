@@ -1,4 +1,4 @@
-## Unreleased — v0.2.0 development / PR 02
+## Unreleased — v0.2.0 development / PR 02–03
 
 - Introduce attribute-based geometry supporting positions, normals, UVs and extra named attributes.
 - Add support for Uint32 indices in both WebGPU and WebGL 2 renderers.
@@ -6,6 +6,8 @@
 - Share render collection and release unreferenced GPU geometry allocations automatically.
 - Add UV sphere and plane geometry, test coverage and a hierarchy demo.
 - Retain compatibility with the v0.1.x interleaved geometry representation.
+
+- Add PR 03 texture/sampler/material APIs, browser image loading, GPU texture reuse, and textured demo support on WebGPU and WebGL 2.
 
 # Changelog
 
