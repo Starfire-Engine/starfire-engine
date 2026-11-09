@@ -1,0 +1,36 @@
+PR 06 scene ownership hotfix for Starfire Engine v0.2.0
+
+Observed startup failure:
+  Unable to start Starfire Engine: Entity belongs to a different scene.
+
+Root cause:
+  GLTFLoader returns a scene that already owns all imported root entities and their descendants.
+  The PR06 demo attempted to register those roots again in its main preview scene.
+
+Fix:
+  Explicitly remove each GLB root from relay.scene before adding it to the preview scene.
+  No changes to renderer APIs or glTF importer ownership semantics are necessary.
+
+Files in this patch:
+  demo/main.js
+  tests/imported-scene-transfer.test.js
+
+Apply from the Starfire Engine repository root on Windows PowerShell:
+  git switch development
+  git pull --ff-only origin development
+  Expand-Archive "$HOME\Downloads\starfire-pr06-scene-hotfix.zip" "$HOME\Downloads\starfire-scene-fix" -Force
+  Copy-Item "$HOME\Downloads\starfire-scene-fix\demo\main.js" ".\demo\main.js" -Force
+  Copy-Item "$HOME\Downloads\starfire-scene-fix\tests\imported-scene-transfer.test.js" ".\tests\" -Force
+  npm run ci
+  npm run dev
+
+Test in the browser:
+  http://localhost:5173/?renderer=webgl2
+  http://localhost:5173/?renderer=webgpu
+
+After confirming both renderers visually:
+  git add demo/main.js tests/imported-scene-transfer.test.js
+  git commit -m "fix: transfer imported GLB roots into preview scene"
+  git push origin development
+
+This is a source-level and Node test fix. Actual browser rendering still needs hardware testing.

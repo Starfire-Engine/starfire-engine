@@ -79,7 +79,12 @@ async function createScene() {
   // PR 05: import a real, original binary glTF 2.0 asset with nested nodes,
   // metallic-roughness materials and images embedded inside the GLB file.
   const relay = await new GLTFLoader().load('/assets/models/starfire-relay.glb');
-  for (const root of relay.roots) scene.add(root);
+  // GLTFLoader registers imported nodes in relay.scene. Explicitly detach each
+  // root subtree before moving it into the larger technical preview scene.
+  for (const root of relay.roots) {
+    relay.scene.remove(root);
+    scene.add(root);
+  }
   if (relay.warnings.length) console.warn('Starfire GLB import:', ...relay.warnings);
   // The demo retains the decoded asset images for its lifetime.
   const rings = [];
