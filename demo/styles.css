@@ -108,3 +108,60 @@ p { margin: 0; max-width: 385px; font-size: 14px; line-height: 1.85; color: #96a
 
 /* PR 06: controls for procedural environment illumination and directional shadows. */
 .exposure-control input[type="checkbox"] { width:17px; height:17px; accent-color:#65bfff; margin-left:auto; }
+
+
+/* PR 07: intentionally reserve a clear 3D viewport between intro/telemetry and controls. */
+main {
+  position: absolute; top: 77px; bottom: 54px; left: 0; right: 0;
+  height: auto; padding: 24px 4.5vw; display: grid;
+  grid-template-columns: minmax(300px, 440px) minmax(120px, 1fr) minmax(180px, 214px);
+  grid-template-rows: auto minmax(10px, 1fr) auto;
+  align-items: start; gap: 16px;
+}
+.hero { grid-column: 1; grid-row: 1; margin: 0; max-width: 440px; }
+h1 { font-size: clamp(42px, 5.2vw, 74px); margin: 18px 0 13px; }
+.hero p { max-width: 340px; font-size: 12px; line-height: 1.65; }
+.hero-actions { margin-top: 20px; flex-wrap: wrap; gap: 16px; }
+.stats { grid-column: 1; grid-row: 3; margin: 0; max-width: 440px; width: 100%; }
+.stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 12px 0; row-gap: 15px; }
+.stat { padding: 0 10px; }
+.stat:nth-child(4n) { border-right: 0; }
+.stat label { white-space: normal; min-height: 22px; line-height: 1.4; }
+.stat strong { font-size: 13px; }
+.panel-heading { padding: 9px 12px; }
+.panel-bottom { padding: 7px 12px; font-size: 8px; }
+.cpu-detail { padding: 0 12px 10px; font-size: 9px; color: #91badf; }
+.toolbar {
+  position: static; grid-column: 3; grid-row: 1 / span 3;
+  align-self: center; justify-self: stretch; align-items: stretch;
+  gap: 7px;
+}
+.toolbar-label { margin-bottom: 4px; }
+.toolbar button, .renderer-select, .exposure-control { min-width: 0; width: 100%; padding: 10px; }
+.toolbar button:disabled { cursor: progress; opacity: .7; }
+.benchmark-result { font-size: 10px; color: #9ab7da; line-height: 1.45; min-height: 36px; }
+body::before {
+  background: linear-gradient(90deg, rgba(3,9,22,.87) 0%, rgba(5,11,25,.45) 28%, transparent 63%),
+    linear-gradient(0deg, rgba(3,8,18,.74) 0%, transparent 24%, transparent 68%, rgba(3,8,18,.32) 100%);
+}
+@media (max-width: 1100px) {
+  main { grid-template-columns: minmax(280px, 1fr) minmax(185px, 215px); gap: 12px; }
+  .hero, .stats { grid-column: 1; max-width: 430px; }
+  .toolbar { grid-column: 2; }
+  .hero { max-width: 420px; }
+}
+@media (max-width: 750px) {
+  html,body { height: auto; min-height: 100%; overflow: auto; }
+  #world { position: fixed; height: 100dvh; }
+  main { position: relative; top: 0; bottom: auto; height: auto; display: flex;
+    flex-direction: column; padding: 18px 20px 78px; gap: 18px; }
+  .hero, .stats { max-width: 100%; width: 100%; margin: 0; }
+  .toolbar { width: 100%; display: grid; grid-template-columns: 1fr 1fr; margin: 0;
+    align-self: stretch; justify-self: stretch; }
+  .toolbar-label, .benchmark-result { grid-column: 1 / -1; }
+  .toolbar .exposure-control, .toolbar .renderer-select { grid-column: auto; }
+  .stat-grid { grid-template-columns: repeat(3,1fr); }
+  .stat:nth-child(4n) { border-right: 1px solid rgba(119,163,225,.17); }
+  .stat:nth-child(3n) { border-right: 0; }
+  .footer { position: relative; }
+}

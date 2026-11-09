@@ -7,16 +7,26 @@ export const vertexGLSL = `#version 300 es
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aUV;
+#ifdef STARFIRE_INSTANCED
+layout(location = 3) in vec4 aInstance0;
+layout(location = 4) in vec4 aInstance1;
+layout(location = 5) in vec4 aInstance2;
+layout(location = 6) in vec4 aInstance3;
+#endif
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
 out vec3 vWorldPosition;
 out vec3 vWorldNormal;
 out vec2 vUV;
 void main() {
-  vec4 world = uModel * vec4(aPosition, 1.0);
+  mat4 model = uModel;
+#ifdef STARFIRE_INSTANCED
+  model = uModel * mat4(aInstance0, aInstance1, aInstance2, aInstance3);
+#endif
+  vec4 world = model * vec4(aPosition, 1.0);
   vWorldPosition = world.xyz;
   vUV = aUV;
-  vWorldNormal = mat3(transpose(inverse(uModel))) * aNormal;
+  vWorldNormal = mat3(transpose(inverse(model))) * aNormal;
   gl_Position = uViewProjection * world;
 }`;
 
@@ -286,12 +296,44 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
 /** Depth-only program for the WebGL 2 directional shadow pass. */
 export const shadowVertexGLSL = `#version 300 es
 layout(location = 0) in vec3 aPosition;
+#ifdef STARFIRE_INSTANCED
+layout(location = 3) in vec4 aInstance0;
+layout(location = 4) in vec4 aInstance1;
+layout(location = 5) in vec4 aInstance2;
+layout(location = 6) in vec4 aInstance3;
+#endif
 uniform mat4 uShadowViewProjection;
 uniform mat4 uModel;
 void main() {
-  gl_Position = uShadowViewProjection * uModel * vec4(aPosition, 1.0);
+  mat4 model = uModel;
+#ifdef STARFIRE_INSTANCED
+  model = uModel * mat4(aInstance0, aInstance1, aInstance2, aInstance3);
+#endif
+  gl_Position = uShadowViewProjection * model * vec4(aPosition, 1.0);
 }`;
 export const shadowFragmentGLSL = `#version 300 es
 precision highp float;
 void main() {}
 `;
+
+/** Compile-time instancing variant uses the same shading logic and per-instance matrices. */
+function asInstancedGLSL(source) {
+  return source.replace('#version 300 es', '#version 300 es\n#define STARFIRE_INSTANCED 1');
+}
+export const vertexInstancedGLSL = asInstancedGLSL(vertexGLSL);
+export const shadowVertexInstancedGLSL = asInstancedGLSL(shadowVertexGLSL);
+
+/** A separate WGSL pipeline variant with a 64-byte instance matrix buffer. */
+export const shaderWGSLInstanced = shaderWGSL
+  .replace('  @location(2) uv: vec2<f32>,', `  @location(2) uv: vec2<f32>,
+  @location(3) instance0: vec4<f32>,
+  @location(4) instance1: vec4<f32>,
+  @location(5) instance2: vec4<f32>,
+  @location(6) instance3: vec4<f32>,`)
+  .replace('  let world = object.model * vec4<f32>(input.position, 1.0);', `  let model = object.model * mat4x4<f32>(input.instance0, input.instance1, input.instance2, input.instance3);
+  let world = model * vec4<f32>(input.position, 1.0);`)
+  .replaceAll('let c0 = object.model[0].xyz;', 'let c0 = model[0].xyz;')
+  .replaceAll('let c1 = object.model[1].xyz;', 'let c1 = model[1].xyz;')
+  .replaceAll('let c2 = object.model[2].xyz;', 'let c2 = model[2].xyz;')
+  .replace('return camera.shadowViewProjection * object.model * vec4<f32>(input.position, 1.0);',
+    'return camera.shadowViewProjection * object.model * mat4x4<f32>(input.instance0, input.instance1, input.instance2, input.instance3) * vec4<f32>(input.position, 1.0);');

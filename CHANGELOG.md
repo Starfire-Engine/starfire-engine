@@ -45,3 +45,14 @@
 - Experimental renderer: basic Lambert/specular illumination, not PBR or photorealistic yet.
 - No asset import pipeline, editor, physics, networking, animation mixer, or audio yet.
 - Browser capability requirements apply; WebGPU and WebGL 2 availability vary.
+
+
+## Unreleased — v0.2.0 PR 07 (Performance & Developer Diagnostics)
+
+- Added versioned conservative local bounds, six-plane camera/shadow frustum culling, and separate main/shadow visibility metrics.
+- Added explicit indexed GPU instancing for WebGPU and WebGL 2 (`InstancedMesh`), with instance buffer versioning and cleanup.
+- Added CPU-side per-frame update/render-submission timings with correct GPU timing null semantics.
+- Added resident GPU resource counts and explicitly approximate GPU byte estimates.
+- Added stress-demo and benchmarking controls; refined demo viewport layout.
+- Hardened partial WebGL startup cleanup and updated developer release/versioning policy to require large `0.x.0` capability leaps.
+- Not yet verified on physical Radeon RX 6600 hardware; release must remain experimental until validated.

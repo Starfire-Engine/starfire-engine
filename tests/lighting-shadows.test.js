@@ -210,7 +210,7 @@ test('WebGL shadow renderer submits a depth pass and restores the framebuffer be
   } finally {restore();}
 });
 
-test('WebGPU startup builds two pipelines, binds a comparison sampler, and allocates a complete fallback map', async()=>{
+test('WebGPU startup builds normal and instanced color/depth pipelines, comparison sampler and fallback map', async()=>{
   const oldNav=Object.getOwnPropertyDescriptor(globalThis,'navigator');
   const restoreWin=swap('window',{devicePixelRatio:1});
   const restoreBuff=swap('GPUBufferUsage',{UNIFORM:1,COPY_DST:2});
@@ -236,8 +236,9 @@ test('WebGPU startup builds two pipelines, binds a comparison sampler, and alloc
     const r=new WebGPURenderer(canvas);
     await r.initialize();
     assert.equal(buffers[0].size,288);
-    assert.equal(pipelines.length,2);
-    assert.equal(pipelines[1].vertex.entryPoint,'shadowVertex');
+    assert.equal(pipelines.length,4);
+    assert.equal(pipelines[2].vertex.entryPoint,'shadowVertex');
+    assert.equal(pipelines[3].vertex.buffers.length,2);
     assert.equal(pipelines[0].layout.bindGroupLayouts.length,3);
     assert.ok(samplers.some(o=>o.compare==='less-equal'));
     assert.ok(tex.some(o=>o.format==='depth24plus' && o.size[0]===1));

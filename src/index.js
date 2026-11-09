@@ -18,3 +18,7 @@ export { Vec3, Mat4 } from './math/index.js';
 export { createBox, createPlane, createSphere } from './geometry/primitives.js';
 export { OrbitControls } from './input/OrbitControls.js';
 export { GLTFLoader, parseGLB, decodeAccessor } from './assets/index.js';
+
+export { InstancedMesh } from './graphics/InstancedMesh.js';
+export { geometryBounds, worldBoundingSphere, frustumPlanes, sphereInFrustum, cullRenderables } from './graphics/Visibility.js';
+export { FrameProfiler } from './core/FrameProfiler.js';

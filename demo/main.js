@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, ShadowSettings, EnvironmentLighting, TextureSampler, GLTFLoader } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, ShadowSettings, EnvironmentLighting, TextureSampler, GLTFLoader, InstancedMesh, Mat4 } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -86,6 +86,21 @@ async function createScene() {
     scene.add(root);
   }
   if (relay.warnings.length) console.warn('Starfire GLB import:', ...relay.warnings);
+  // PR 07: optional stress demo; 256 copies share a single geometry/material
+  // and render with one instanced draw per active pass rather than 256 draws.
+  const instanceMatrices = new Float32Array(256 * 16);
+  for (let n = 0; n < 256; n++) {
+    const x = n % 16, z = Math.floor(n / 16);
+    instanceMatrices.set(Mat4.compose([(x - 7.5) * 1.4, 0, (z - 7.5) * 1.4],
+      [0, (x + z) * 0.10, 0], [0.22, 0.22 + (n % 5) * 0.05, 0.22]), n * 16);
+  }
+  const stress = new Entity('PR 07 / Instancing performance demo').add('mesh',
+    new InstancedMesh(createBox(), new PBRMaterial({ color:[0.14,0.58,0.98,1],
+      metallic:0.65, roughness:0.34 }), instanceMatrices));
+  stress.transform.position = [0, 0.5, -8];
+  stress.visible = false;
+  scene.add(stress);
+  scene.performanceDemo = stress;
   // The demo retains the decoded asset images for its lifetime.
   const rings = [];
   for (let i = 0; i < 12; i++) {
@@ -148,15 +163,54 @@ async function boot() {
     };
     envInput.addEventListener('input', updateEnvironment);
     updateEnvironment();
+    const stressToggle = $('stressToggle');
+    stressToggle.addEventListener('change', () => {
+      scene.performanceDemo.visible = stressToggle.checked;
+    });
+    const cullingToggle = $('cullingToggle');
+    cullingToggle.checked = engine.renderer.cullingEnabled;
+    cullingToggle.addEventListener('change', () => {
+      engine.renderer.cullingEnabled = cullingToggle.checked;
+    });
+    const benchmarkButton = $('benchmarkBtn');
+    const benchmarkResult = $('benchmarkResult');
+    let bench = null;
+    benchmarkButton.addEventListener('click', () => {
+      bench = { start: performance.now(), frames: 0, fps: 0, cpu: 0 };
+      benchmarkButton.disabled = true;
+      benchmarkResult.textContent = 'Benchmark running — keep the camera still';
+    });
     $('renderer').textContent = engine.renderer.name.toUpperCase();
     $('engineStatus').textContent = 'All systems operational • Shadows / environment / GLB';
-    engine.onStats = ({ fps, renderer, entities, drawCalls, triangles }) => {
+    engine.onStats = ({ fps, renderer, entities, drawCalls, triangles,
+      shadowDrawCalls, culledMeshes, shadowCulled, visibleMeshes, instancesRendered,
+      cpuFrameMs, cpuUpdateMs, cpuRenderMs, resources }) => {
       $('fps').textContent = fps;
       $('renderer').textContent = renderer.toUpperCase();
       $('entities').textContent = entities;
       $('drawcalls').textContent = drawCalls;
-      $('shadowDraws').textContent = engine.renderer.shadowDrawCalls ?? 0;
+      $('shadowDraws').textContent = shadowDrawCalls;
       $('triangles').textContent = triangles.toLocaleString();
+      $('culledMeshes').textContent = `${culledMeshes} / ${shadowCulled}`;
+      $('cpuTime').textContent = `${cpuFrameMs.toFixed(1)} ms`;
+      $('instanceCount').textContent = instancesRendered.toLocaleString();
+      $('residentAssets').textContent = resources
+        ? `${resources.geometryResources} GEO / ${resources.textureResources} TEX` : '—';
+      $('gpuEstimate').textContent = resources
+        ? `${(resources.estimatedGPUBytes / (1024 * 1024)).toFixed(1)} MB` : '—';
+      $('cpuBreakdown').textContent = `Update ${cpuUpdateMs.toFixed(2)} ms · Render submission ${cpuRenderMs.toFixed(2)} ms · GPU time not measured`;
+      if (bench) {
+        bench.frames++;
+        bench.fps += fps;
+        bench.cpu += cpuFrameMs;
+        if (performance.now() - bench.start >= 5000) {
+          benchmarkResult.textContent = `${renderer}: ${Math.round(bench.fps / bench.frames)} FPS avg; ` +
+            `${(bench.cpu / bench.frames).toFixed(2)} ms CPU frame avg; ` +
+            `${drawCalls} main / ${shadowDrawCalls} shadow draws (latest sample)`;
+          benchmarkButton.disabled = false;
+          bench = null;
+        }
+      }
     };
     engine.onError = (error) => {
       $('engineStatus').textContent = 'Rendering error';

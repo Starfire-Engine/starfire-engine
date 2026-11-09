@@ -15,12 +15,12 @@
       <span class="brand-icon" aria-hidden="true">✳</span>
       <span class="brand-lines"><strong>STARFIRE</strong><small>ENGINE / ALPHA</small></span>
     </a>
-    <span class="build"><span class="build-dot"></span> EXPERIMENTAL BUILD <span class="build-id">0.2.0 / PR06</span></span>
+    <span class="build"><span class="build-dot"></span> EXPERIMENTAL BUILD <span class="build-id">0.2.0 / PR07</span></span>
     <span class="topright">100% OPEN SOURCE <span class="hidden-small">· APACHE 2.0</span></span>
   </header>
   <main>
     <section class="hero" aria-label="Introduction">
-      <div class="eyebrow"><span class="line"></span> GRAPHICS ENGINE / LIGHTING & SHADOW PREVIEW</div>
+      <div class="eyebrow"><span class="line"></span> GRAPHICS ENGINE / RENDERING & PROFILING PREVIEW</div>
       <h1>Build the <em>unimaginable.</em></h1>
       <p>An original 3D rendering engine built for the open web. Custom GPU pipelines. Reusable scene systems. No rendering frameworks.</p>
       <div class="hero-actions">
@@ -37,8 +37,14 @@
         <div class="stat"><label>DRAW CALLS</label><strong id="drawcalls">—</strong></div>
         <div class="stat"><label>SHADOW DRAWS</label><strong id="shadowDraws">—</strong></div>
         <div class="stat"><label>TRIANGLES</label><strong id="triangles">—</strong></div>
+        <div class="stat"><label>CPU FRAME</label><strong id="cpuTime">—</strong></div>
+        <div class="stat"><label>CULLED MAIN/SHADOW</label><strong id="culledMeshes">—</strong></div>
+        <div class="stat"><label>INSTANCES VISIBLE</label><strong id="instanceCount">—</strong></div>
+        <div class="stat"><label>RESIDENT ASSETS</label><strong id="residentAssets">—</strong></div>
+        <div class="stat"><label>GPU MEMORY EST.</label><strong id="gpuEstimate">—</strong></div>
       </div>
       <div class="panel-bottom"><span>STATUS</span><strong id="engineStatus">Initializing engine</strong></div>
+      <div class="cpu-detail" id="cpuBreakdown">CPU/GPU timings awaiting first frame</div>
     </section>
     <section class="toolbar" aria-label="Demo controls">
       <div class="toolbar-label">SCENE CONTROLS</div>
@@ -62,6 +68,14 @@
         <input id="environmentIntensity" type="range" min="0" max="2" value="0.8" step="0.1" aria-label="Environment lighting intensity" />
         <output id="environmentValue" for="environmentIntensity">0.8</output>
       </label>
+      <label class="exposure-control" for="cullingToggle">FRUSTUM CULLING
+        <input id="cullingToggle" type="checkbox" checked aria-label="Enable conservative camera/shadow culling" />
+      </label>
+      <label class="exposure-control" for="stressToggle">256 INSTANCES
+        <input id="stressToggle" type="checkbox" aria-label="Enable 256-box instancing stress demo" />
+      </label>
+      <button type="button" id="benchmarkBtn"><span>BENCHMARK 5 SECONDS</span></button>
+      <div class="benchmark-result" id="benchmarkResult" aria-live="polite">CPU timings exclude actual GPU execution.</div>
     </section>
   </main>
   <footer class="footer">

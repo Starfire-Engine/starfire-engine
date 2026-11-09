@@ -1,4 +1,6 @@
-import { shaderWGSL } from './shaders.js';
+import { shaderWGSL, shaderWGSLInstanced } from './shaders.js';
+import { InstancedMesh } from './InstancedMesh.js';
+import { cullRenderables } from './Visibility.js';
 import { prepareGeometry } from '../geometry/Geometry.js';
 import { GeometryResourceCache } from './GeometryResourceCache.js';
 import { collectRenderables } from './RenderQueue.js';
@@ -22,6 +24,12 @@ export class WebGPURenderer {
       resource.indexBuffer.destroy();
     });
     this.textureCache = new TextureResourceCache((resource) => resource.texture.destroy());
+    this.instanceCache = new GeometryResourceCache((resource) => resource.buffer.destroy());
+    this.cullingEnabled = true;
+    this.culledMeshes = 0;
+    this.shadowCulled = 0;
+    this.instancesRendered = 0;
+    this.visibleMeshes = 0;
     this.samplerCache = new Map();
     this.fallbackTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]));
     // R=unused, G=roughness multiplier, B=metallic multiplier; linear 1x1.
@@ -65,8 +73,16 @@ export class WebGPURenderer {
     const info = await module.getCompilationInfo();
     const errors = info.messages.filter((message) => message.type === 'error');
     if (errors.length) throw new Error(`WGSL compilation error: ${errors.map((e) => e.message).join('; ')}`);
+    const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout, this.textureBindGroupLayout, this.shadowBindGroupLayout] });
+    const shadowLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
+    const instanceBuffers = [{ arrayStride: 64, stepMode: 'instance', attributes: [
+      { shaderLocation: 3, offset: 0, format: 'float32x4' },
+      { shaderLocation: 4, offset: 16, format: 'float32x4' },
+      { shaderLocation: 5, offset: 32, format: 'float32x4' },
+      { shaderLocation: 6, offset: 48, format: 'float32x4' }
+    ] }];
     this.pipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout, this.textureBindGroupLayout, this.shadowBindGroupLayout] }),
+      layout: mainLayout,
       vertex: {
         module, entryPoint: 'vertexMain',
         buffers: [{ arrayStride: 32, attributes: [
@@ -79,13 +95,36 @@ export class WebGPURenderer {
       primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
     });
+    const instanceModule = device.createShaderModule({ code: shaderWGSLInstanced });
+    const instanceInfo = await instanceModule.getCompilationInfo();
+    const instanceErrors = instanceInfo.messages.filter((message) => message.type === 'error');
+    if (instanceErrors.length) throw new Error(`Instanced WGSL error: ${instanceErrors.map((e) => e.message).join('; ')}`);
+    const vertexLayout = { arrayStride: 32, attributes: [
+      { shaderLocation: 0, offset: 0, format: 'float32x3' },
+      { shaderLocation: 1, offset: 12, format: 'float32x3' },
+      { shaderLocation: 2, offset: 24, format: 'float32x2' }
+    ] };
+    this.instancedPipeline = device.createRenderPipeline({
+      layout: mainLayout,
+      vertex: { module: instanceModule, entryPoint: 'vertexMain', buffers: [vertexLayout, ...instanceBuffers] },
+      fragment: { module: instanceModule, entryPoint: 'fragmentMain', targets: [{ format: this.format }] },
+      primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
+    });
     this.shadowPipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+      layout: shadowLayout,
       vertex: { module, entryPoint: 'shadowVertex', buffers: [{ arrayStride: 32, attributes: [
         { shaderLocation: 0, offset: 0, format: 'float32x3' },
         { shaderLocation: 1, offset: 12, format: 'float32x3' },
         { shaderLocation: 2, offset: 24, format: 'float32x2' }
       ] }] },
+      primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less',
+        depthBias: 2, depthBiasSlopeScale: 2 }
+    });
+    this.instancedShadowPipeline = device.createRenderPipeline({
+      layout: shadowLayout,
+      vertex: { module: instanceModule, entryPoint: 'shadowVertex', buffers: [vertexLayout, ...instanceBuffers] },
       primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less',
         depthBias: 2, depthBiasSlopeScale: 2 }
@@ -143,12 +182,23 @@ export class WebGPURenderer {
         indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
         this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
         this.device.queue.writeBuffer(indexBuffer, 0, indices);
-        return { vertexBuffer, indexBuffer, count: indices.length, indexFormat: indices instanceof Uint32Array ? 'uint32' : 'uint16' };
+        return { vertexBuffer, indexBuffer, count: indices.length, byteSize: vertices.byteLength + indices.byteLength, indexFormat: indices instanceof Uint32Array ? 'uint32' : 'uint16' };
       } catch (error) {
         vertexBuffer?.destroy();
         indexBuffer?.destroy();
         throw error;
       }
+    });
+  }
+  getInstances(mesh) {
+    return this.instanceCache.get(mesh, () => {
+      if (!(mesh instanceof InstancedMesh) || mesh.instanceCount === 0) return null;
+      const buffer = this.device.createBuffer({ size: mesh.instanceMatrices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      try {
+        this.device.queue.writeBuffer(buffer, 0, mesh.instanceMatrices);
+        return { buffer, byteSize: mesh.instanceMatrices.byteLength };
+      } catch (error) { buffer.destroy(); throw error; }
     });
   }
   /** Upload an image or RGBA byte array; cache is per renderer/device. */
@@ -249,24 +299,43 @@ export class WebGPURenderer {
     uniforms.set([...lighting.environment.groundColor, 0], 64);
     uniforms.set([lighting.environment.intensity, 0, 0, 0], 68);
     device.queue.writeBuffer(this.cameraBuffer, 0, uniforms);
-    const meshes = collectRenderables(scene);
-    this.cache.sweep(new Set(meshes.map((item) => item.geometry)));
+    const allMeshes = collectRenderables(scene).filter((item) =>
+      !(item.mesh instanceof InstancedMesh) || item.mesh.instanceCount > 0);
+    const culling = this.cullingEnabled && camera.frustumCulling === true;
+    const mainSelection = cullRenderables(allMeshes,
+      camera.matrix(this.canvas.width / this.canvas.height, 'webgpu'), 'webgpu', culling);
+    const shadowSelection = shadowsActive
+      ? cullRenderables(allMeshes, shadowMatrix, 'webgpu', culling)
+      : { visible: [], culled: 0 };
+    const meshes = mainSelection.visible;
+    const shadowMeshes = shadowSelection.visible;
+    const submissions = [...new Set([...meshes, ...shadowMeshes])];
+    const indices = new Map(submissions.map((item, index) => [item, index]));
+    this.culledMeshes = mainSelection.culled;
+    this.shadowCulled = shadowSelection.culled;
+    this.visibleMeshes = meshes.length;
+    this.instancesRendered = meshes.reduce((total, item) =>
+      total + (item.mesh instanceof InstancedMesh ? item.mesh.instanceCount : 1), 0);
+    // Do not evict offscreen assets: camera motion must not cause resource thrashing.
+    this.cache.sweep(new Set(allMeshes.map((item) => item.geometry)));
+    this.instanceCache.sweep(new Set(allMeshes.filter((item) => item.mesh instanceof InstancedMesh)
+      .map((item) => item.mesh)));
     this.textureCache.sweep(new Set([
       this.fallbackTexture, this.fallbackMRTexture,
-      ...meshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
-      ...meshes.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
+      ...allMeshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
+      ...allMeshes.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
     ]));
-    if (meshes.length > MAX_OBJECTS) throw new Error(`Exceeded renderer draw limit of ${MAX_OBJECTS} objects`);
-    const objects = new Float32Array((OBJECT_STRIDE / 4) * meshes.length);
-    meshes.forEach((entity, index) => {
-      const mesh = entity.mesh;
-      objects.set(entity.modelMatrix, index * OBJECT_STRIDE / 4);
+    if (submissions.length > MAX_OBJECTS) throw new Error(`Exceeded renderer draw limit of ${MAX_OBJECTS} objects`);
+    const objects = new Float32Array((OBJECT_STRIDE / 4) * submissions.length);
+    submissions.forEach((item, index) => {
+      const mesh = item.mesh;
+      objects.set(item.modelMatrix, index * OBJECT_STRIDE / 4);
       objects.set(mesh.material.color, index * OBJECT_STRIDE / 4 + 16);
       const pbr = resolveMaterial(mesh.material);
       objects.set([pbr.metallic, pbr.roughness, Number(pbr.isPBR), 0], index * OBJECT_STRIDE / 4 + 20);
       objects.set([...pbr.emissive, 0], index * OBJECT_STRIDE / 4 + 24);
     });
-    if (meshes.length) device.queue.writeBuffer(this.objectBuffer, 0, objects);
+    if (submissions.length) device.queue.writeBuffer(this.objectBuffer, 0, objects);
     const encoder = device.createCommandEncoder();
     this.shadowDrawCalls = 0;
     if (shadowsActive) {
@@ -276,12 +345,15 @@ export class WebGPURenderer {
           depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' }
       });
       depthPass.setPipeline(this.shadowPipeline);
-      meshes.forEach((item, index) => {
+      shadowMeshes.forEach((item) => {
         const buffer = this.getGeometry(item.geometry);
-        depthPass.setBindGroup(0, this.bindGroup, [index * OBJECT_STRIDE]);
+        const instanced = item.mesh instanceof InstancedMesh;
+        depthPass.setPipeline(instanced ? this.instancedShadowPipeline : this.shadowPipeline);
+        depthPass.setBindGroup(0, this.bindGroup, [indices.get(item) * OBJECT_STRIDE]);
         depthPass.setVertexBuffer(0, buffer.vertexBuffer);
+        if (instanced) depthPass.setVertexBuffer(1, this.getInstances(item.mesh).buffer);
         depthPass.setIndexBuffer(buffer.indexBuffer, buffer.indexFormat);
-        depthPass.drawIndexed(buffer.count);
+        depthPass.drawIndexed(buffer.count, instanced ? item.mesh.instanceCount : 1);
         this.shadowDrawCalls++;
       });
       depthPass.end();
@@ -301,22 +373,37 @@ export class WebGPURenderer {
     if (this.shadowBindGroup) pass.setBindGroup(2, this.shadowBindGroup);
     this.drawCalls = 0;
     this.triangles = 0;
-    meshes.forEach((entity, index) => {
-      const buffer = this.getGeometry(entity.geometry);
-      pass.setBindGroup(0, this.bindGroup, [index * OBJECT_STRIDE]);
-      const materialGroup = this.getMaterialBindGroup(entity.mesh.material);
+    meshes.forEach((item) => {
+      const buffer = this.getGeometry(item.geometry);
+      const instanced = item.mesh instanceof InstancedMesh;
+      pass.setPipeline(instanced ? this.instancedPipeline : this.pipeline);
+      pass.setBindGroup(0, this.bindGroup, [indices.get(item) * OBJECT_STRIDE]);
+      const materialGroup = this.getMaterialBindGroup(item.mesh.material);
       if (materialGroup) pass.setBindGroup(1, materialGroup);
       pass.setVertexBuffer(0, buffer.vertexBuffer);
+      if (instanced) pass.setVertexBuffer(1, this.getInstances(item.mesh).buffer);
       pass.setIndexBuffer(buffer.indexBuffer, buffer.indexFormat);
-      pass.drawIndexed(buffer.count);
+      pass.drawIndexed(buffer.count, instanced ? item.mesh.instanceCount : 1);
       this.drawCalls++;
-      this.triangles += buffer.count / 3;
+      this.triangles += (buffer.count / 3) * (instanced ? item.mesh.instanceCount : 1);
     });
     pass.end();
     device.queue.submit([encoder.finish()]);
   }
+  getDiagnostics() {
+    const bytes = (cache) => [...cache.entries.values()].reduce(
+      (sum, item) => sum + (item.resource?.byteSize ?? 0), 0);
+    const textureBytes = [...this.textureCache.entries.keys()].reduce(
+      (sum, texture) => sum + texture.width * texture.height * 4, 0);
+    return { geometryResources: this.cache.size, textureResources: this.textureCache.size,
+      instanceResources: this.instanceCache.size,
+      estimatedGPUBytes: bytes(this.cache) + bytes(this.instanceCache) + textureBytes +
+        (this.shadowSize ?? 0) ** 2 * 4 + this.canvas.width * this.canvas.height * 4,
+      note: 'Estimate excludes GPU driver overhead, shader pipelines and buffers managed by the browser.' };
+  }
   dispose() {
     this.cache.clear();
+    this.instanceCache.clear();
     this.textureCache.clear();
     this.samplerCache.clear();
     this.depthTexture?.destroy();

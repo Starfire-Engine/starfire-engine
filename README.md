@@ -175,3 +175,19 @@ engine.scene = imported.scene;
 ```
 
 This is a deliberately limited **static** importer: animations, skins, sparse accessors, double-sided/transparent surfaces, normal maps and compressed extensions are not supported. Unsupported features fail with explanatory errors. See [PR 05 documentation](docs/V0.2.0-PR05-GLTF-ASSETS.md).
+
+
+## 0.2.0 development — PR 07 performance foundation
+
+PR 07 adds conservative main/shadow frustum culling, an explicit `InstancedMesh` API,
+CPU-only frame timing, renderer resource estimates, and a performance benchmark demo.
+The version 0.2.0 graphics and asset train is still **experimental** until real
+WebGPU and WebGL 2 hardware testing passes. `gpuMs` is `null` by design.
+
+See [PR 07 design and test notes](docs/V0.2.0-PR07-PERFORMANCE.md) and the
+[versioning and v1.0.0 policy](docs/VERSIONING-AND-1.0.md).
+
+A `0.x.0` milestone is a substantial developer capability release. Follow-up fixes,
+limited features and hardening belong in `0.x.y`. Starfire Engine `1.0.0` will not
+ship until developers can create, edit, test, package and release a complete game
+using the publicly available engine runtime and editor/toolchain.

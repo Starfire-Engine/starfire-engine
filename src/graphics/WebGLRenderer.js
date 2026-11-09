@@ -1,4 +1,6 @@
-import { fragmentGLSL, vertexGLSL, shadowFragmentGLSL, shadowVertexGLSL } from './shaders.js';
+import { fragmentGLSL, vertexGLSL, shadowFragmentGLSL, shadowVertexGLSL, vertexInstancedGLSL, shadowVertexInstancedGLSL } from './shaders.js';
+import { InstancedMesh } from './InstancedMesh.js';
+import { cullRenderables } from './Visibility.js';
 import { prepareGeometry } from '../geometry/Geometry.js';
 import { GeometryResourceCache } from './GeometryResourceCache.js';
 import { collectRenderables } from './RenderQueue.js';
@@ -40,12 +42,32 @@ function createProgram(gl, vertexSource = vertexGLSL, fragmentSource = fragmentG
   return program;
 }
 
+const UNIFORM_NAMES = {
+  viewProjection: 'uViewProjection', model: 'uModel', color: 'uColor', eye: 'uEye',
+  baseColorTexture: 'uBaseColorTexture', metallicRoughnessTexture: 'uMetallicRoughnessTexture',
+  pbrParams: 'uPBRParams', emissive: 'uEmissive', lightDirection: 'uLightDirection',
+  keyLight: 'uKeyLight', ambientLight: 'uAmbientLight', exposure: 'uExposure',
+  shadowViewProjection: 'uShadowViewProjection', shadowParams: 'uShadowParams', shadowMap: 'uShadowMap',
+  skyColor: 'uSkyColor', horizonColor: 'uHorizonColor', groundColor: 'uGroundColor',
+  environmentIntensity: 'uEnvironmentIntensity'
+};
+function locations(gl, program) {
+  return Object.fromEntries(Object.entries(UNIFORM_NAMES).map(([key, value]) =>
+    [key, gl.getUniformLocation(program, value)]));
+}
+
 export class WebGLRenderer {
   constructor(canvas, pixelRatioCap = 2) {
     this.canvas = canvas;
     this.pixelRatioCap = pixelRatioCap;
     this.name = 'WebGL 2';
     this.textureCache = new TextureResourceCache((resource) => this.gl.deleteTexture(resource));
+    this.instanceCache = new GeometryResourceCache((resource) => this.gl.deleteBuffer(resource.buffer));
+    this.cullingEnabled = true;
+    this.culledMeshes = 0;
+    this.shadowCulled = 0;
+    this.visibleMeshes = 0;
+    this.instancesRendered = 0;
     this.samplerCache = new Map();
     this.fallbackTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]));
     this.fallbackMRTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]), { colorSpace: 'linear' });
@@ -63,37 +85,29 @@ export class WebGLRenderer {
     if (!gl) throw new Error('WebGL 2 is unavailable');
     this.gl = gl;
     this.program = createProgram(gl);
-    this.uniforms = {
-      viewProjection: gl.getUniformLocation(this.program, 'uViewProjection'),
-      model: gl.getUniformLocation(this.program, 'uModel'),
-      color: gl.getUniformLocation(this.program, 'uColor'),
-      eye: gl.getUniformLocation(this.program, 'uEye'),
-      baseColorTexture: gl.getUniformLocation(this.program, 'uBaseColorTexture'),
-      metallicRoughnessTexture: gl.getUniformLocation(this.program, 'uMetallicRoughnessTexture'),
-      pbrParams: gl.getUniformLocation(this.program, 'uPBRParams'),
-      emissive: gl.getUniformLocation(this.program, 'uEmissive'),
-      lightDirection: gl.getUniformLocation(this.program, 'uLightDirection'),
-      keyLight: gl.getUniformLocation(this.program, 'uKeyLight'),
-      ambientLight: gl.getUniformLocation(this.program, 'uAmbientLight'),
-      exposure: gl.getUniformLocation(this.program, 'uExposure'),
-      shadowViewProjection: gl.getUniformLocation(this.program, 'uShadowViewProjection'),
-      shadowParams: gl.getUniformLocation(this.program, 'uShadowParams'),
-      shadowMap: gl.getUniformLocation(this.program, 'uShadowMap'),
-      skyColor: gl.getUniformLocation(this.program, 'uSkyColor'),
-      horizonColor: gl.getUniformLocation(this.program, 'uHorizonColor'),
-      groundColor: gl.getUniformLocation(this.program, 'uGroundColor'),
-      environmentIntensity: gl.getUniformLocation(this.program, 'uEnvironmentIntensity')
-    };
+    this.uniforms = locations(gl, this.program);
+    this.instancedProgram = createProgram(gl, vertexInstancedGLSL, fragmentGLSL);
+    this.instancedUniforms = locations(gl, this.instancedProgram);
     gl.useProgram(this.program);
     gl.uniform1i(this.uniforms.baseColorTexture, 0);
     gl.uniform1i(this.uniforms.metallicRoughnessTexture, 1);
     this.shadowProgram = createProgram(gl, shadowVertexGLSL, shadowFragmentGLSL);
+    this.instancedShadowProgram = createProgram(gl, shadowVertexInstancedGLSL, shadowFragmentGLSL);
     this.shadowUniforms = {
       viewProjection: gl.getUniformLocation(this.shadowProgram, 'uShadowViewProjection'),
       model: gl.getUniformLocation(this.shadowProgram, 'uModel')
     };
+    this.instancedShadowUniforms = {
+      viewProjection: gl.getUniformLocation(this.instancedShadowProgram, 'uShadowViewProjection'),
+      model: gl.getUniformLocation(this.instancedShadowProgram, 'uModel')
+    };
     gl.useProgram(this.program);
     gl.uniform1i(this.uniforms.shadowMap, 2);
+    gl.useProgram(this.instancedProgram);
+    gl.uniform1i(this.instancedUniforms.baseColorTexture, 0);
+    gl.uniform1i(this.instancedUniforms.metallicRoughnessTexture, 1);
+    gl.uniform1i(this.instancedUniforms.shadowMap, 2);
+    gl.useProgram(this.program);
     this.shadowReady = true;
     this.texturingReady = true;
     this.pbrReady = true;
@@ -182,6 +196,7 @@ export class WebGLRenderer {
         gl.enableVertexAttribArray(2);
         gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
         return { vao, vertexBuffer, indexBuffer, count: indices.length,
+          byteSize: vertices.byteLength + indices.byteLength,
           indexType: indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT };
       } catch (error) {
         gl.deleteVertexArray(vao);
@@ -190,6 +205,32 @@ export class WebGLRenderer {
         throw error;
       } finally { gl.bindVertexArray(null); }
     });
+  }
+  getInstances(mesh) {
+    return this.instanceCache.get(mesh, () => {
+      if (!(mesh instanceof InstancedMesh) || !mesh.instanceCount) return null;
+      const gl = this.gl;
+      const buffer = gl.createBuffer();
+      if (!buffer) throw new Error('Unable to allocate WebGL instance buffer');
+      try {
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, mesh.instanceMatrices, gl.STATIC_DRAW);
+        return { buffer, byteSize: mesh.instanceMatrices.byteLength };
+      } catch (error) { gl.deleteBuffer(buffer); throw error; }
+    });
+  }
+  /** Bind one mat4 per instance into attributes 3..6 of the current VAO. */
+  bindInstances(mesh, gpuMesh) {
+    const gl = this.gl;
+    const instance = this.getInstances(mesh);
+    gl.bindVertexArray(gpuMesh.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, instance.buffer);
+    for (let column = 0; column < 4; column++) {
+      const location = 3 + column;
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, 4, gl.FLOAT, false, 64, 16 * column);
+      gl.vertexAttribDivisor(location, 1);
+    }
   }
   getTexture(texture) {
     return this.textureCache.get(texture, () => {
@@ -237,9 +278,23 @@ export class WebGLRenderer {
     const lighting = resolveLighting(scene);
     const shadows = lighting.shadows;
     const shadowsActive = shadows.enabled && Boolean(this.shadowReady);
-    const renderables = collectRenderables(scene);
+    const allMeshes = collectRenderables(scene).filter((item) =>
+      !(item.mesh instanceof InstancedMesh) || item.mesh.instanceCount > 0);
     const shadowMatrix = shadowsActive
       ? shadowViewProjection(lighting.direction, shadows, 'webgl') : Mat4.identity();
+    const culling = this.cullingEnabled && camera.frustumCulling === true;
+    const mainSelection = cullRenderables(allMeshes,
+      camera.matrix(this.canvas.width / this.canvas.height, 'webgl'), 'webgl', culling);
+    const shadowSelection = shadowsActive
+      ? cullRenderables(allMeshes, shadowMatrix, 'webgl', culling)
+      : { visible: [], culled: 0 };
+    const renderables = mainSelection.visible;
+    const shadowMeshes = shadowSelection.visible;
+    this.visibleMeshes = renderables.length;
+    this.culledMeshes = mainSelection.culled;
+    this.shadowCulled = shadowSelection.culled;
+    this.instancesRendered = renderables.reduce((total, item) =>
+      total + (item.mesh instanceof InstancedMesh ? item.mesh.instanceCount : 1), 0);
     this.shadowDrawCalls = 0;
     if (this.shadowReady) {
       this.ensureShadowResources(shadowsActive ? shadows.mapSize : 1);
@@ -254,11 +309,25 @@ export class WebGLRenderer {
         gl.polygonOffset(2, 2);
         gl.useProgram(this.shadowProgram);
         gl.uniformMatrix4fv(this.shadowUniforms.viewProjection, false, shadowMatrix);
-        for (const item of renderables) {
+        let lastProgram = this.shadowProgram;
+        for (const item of shadowMeshes) {
           const geometry = this.getGeometry(item.geometry);
-          gl.uniformMatrix4fv(this.shadowUniforms.model, false, item.modelMatrix);
+          const instanced = item.mesh instanceof InstancedMesh;
+          const program = instanced ? this.instancedShadowProgram : this.shadowProgram;
+          const uniforms = instanced ? this.instancedShadowUniforms : this.shadowUniforms;
+          if (program !== lastProgram) {
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(uniforms.viewProjection, false, shadowMatrix);
+            lastProgram = program;
+          }
+          gl.uniformMatrix4fv(uniforms.model, false, item.modelMatrix);
           gl.bindVertexArray(geometry.vao);
-          gl.drawElements(gl.TRIANGLES, geometry.count, geometry.indexType, 0);
+          if (instanced) {
+            this.bindInstances(item.mesh, geometry);
+            gl.drawElementsInstanced(gl.TRIANGLES, geometry.count, geometry.indexType, 0, item.mesh.instanceCount);
+          } else {
+            gl.drawElements(gl.TRIANGLES, geometry.count, geometry.indexType, 0);
+          }
           this.shadowDrawCalls++;
         }
       } finally {
@@ -272,43 +341,57 @@ export class WebGLRenderer {
       }
     }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.useProgram(this.program);
-    gl.uniformMatrix4fv(this.uniforms.viewProjection, false, camera.matrix(this.canvas.width / this.canvas.height, 'webgl'));
-    gl.uniform3fv(this.uniforms.eye, camera.position);
-    if (this.pbrReady) {
-      gl.uniform3fv(this.uniforms.lightDirection, lighting.direction);
-      gl.uniform4fv(this.uniforms.keyLight, [...lighting.color, lighting.intensity]);
-      gl.uniform4fv(this.uniforms.ambientLight, [...lighting.ambientColor, lighting.ambientIntensity]);
-      gl.uniform1f(this.uniforms.exposure, lighting.exposure);
-      if (this.shadowReady) {
-        gl.uniformMatrix4fv(this.uniforms.shadowViewProjection, false, shadowMatrix);
-        gl.uniform4fv(this.uniforms.shadowParams, [Number(shadowsActive), shadows.bias, shadows.strength,
-          1 / (shadowsActive ? shadows.mapSize : 1)]);
-        gl.uniform4fv(this.uniforms.skyColor, [...lighting.environment.skyColor, 0]);
-        gl.uniform4fv(this.uniforms.horizonColor, [...lighting.environment.horizonColor, 0]);
-        gl.uniform4fv(this.uniforms.groundColor, [...lighting.environment.groundColor, 0]);
-        gl.uniform1f(this.uniforms.environmentIntensity, lighting.environment.intensity);
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
-        gl.activeTexture(gl.TEXTURE0);
+    const configureMain = (program, uniforms) => {
+      gl.useProgram(program);
+      gl.uniformMatrix4fv(uniforms.viewProjection, false,
+        camera.matrix(this.canvas.width / this.canvas.height, 'webgl'));
+      gl.uniform3fv(uniforms.eye, camera.position);
+      if (this.pbrReady) {
+        gl.uniform3fv(uniforms.lightDirection, lighting.direction);
+        gl.uniform4fv(uniforms.keyLight, [...lighting.color, lighting.intensity]);
+        gl.uniform4fv(uniforms.ambientLight, [...lighting.ambientColor, lighting.ambientIntensity]);
+        gl.uniform1f(uniforms.exposure, lighting.exposure);
+        if (this.shadowReady) {
+          gl.uniformMatrix4fv(uniforms.shadowViewProjection, false, shadowMatrix);
+          gl.uniform4fv(uniforms.shadowParams, [Number(shadowsActive), shadows.bias, shadows.strength,
+            1 / (shadowsActive ? shadows.mapSize : 1)]);
+          gl.uniform4fv(uniforms.skyColor, [...lighting.environment.skyColor, 0]);
+          gl.uniform4fv(uniforms.horizonColor, [...lighting.environment.horizonColor, 0]);
+          gl.uniform4fv(uniforms.groundColor, [...lighting.environment.groundColor, 0]);
+          gl.uniform1f(uniforms.environmentIntensity, lighting.environment.intensity);
+        }
       }
+    };
+    configureMain(this.program, this.uniforms);
+    if (this.instancedProgram) configureMain(this.instancedProgram, this.instancedUniforms);
+    if (this.shadowReady) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
+      gl.activeTexture(gl.TEXTURE0);
     }
     this.drawCalls = 0;
     this.triangles = 0;
-    this.cache.sweep(new Set(renderables.map((item) => item.geometry)));
+    this.cache.sweep(new Set(allMeshes.map((item) => item.geometry)));
+    this.instanceCache.sweep(new Set(allMeshes.filter((item) => item.mesh instanceof InstancedMesh)
+      .map((item) => item.mesh)));
     this.textureCache.sweep(new Set([
       this.fallbackTexture, this.fallbackMRTexture,
-      ...renderables.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
-      ...renderables.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
+      ...allMeshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
+      ...allMeshes.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
     ]));
+    let activeMainProgram = null;
     for (const item of renderables) {
       const gpuMesh = this.getGeometry(item.geometry);
-      gl.uniformMatrix4fv(this.uniforms.model, false, item.modelMatrix);
-      gl.uniform4fv(this.uniforms.color, item.mesh.material.color);
+      const instanced = item.mesh instanceof InstancedMesh;
+      const program = instanced ? this.instancedProgram : this.program;
+      const uniforms = instanced ? this.instancedUniforms : this.uniforms;
+      if (activeMainProgram !== program) { gl.useProgram(program); activeMainProgram = program; }
+      gl.uniformMatrix4fv(uniforms.model, false, item.modelMatrix);
+      gl.uniform4fv(uniforms.color, item.mesh.material.color);
       const pbr = resolveMaterial(item.mesh.material);
       if (this.pbrReady) {
-        gl.uniform4fv(this.uniforms.pbrParams, [pbr.metallic, pbr.roughness, Number(pbr.isPBR), 0]);
-        gl.uniform3fv(this.uniforms.emissive, pbr.emissive);
+        gl.uniform4fv(uniforms.pbrParams, [pbr.metallic, pbr.roughness, Number(pbr.isPBR), 0]);
+        gl.uniform3fv(uniforms.emissive, pbr.emissive);
       }
       if (this.texturingReady) {
         gl.activeTexture(gl.TEXTURE0);
@@ -322,9 +405,14 @@ export class WebGLRenderer {
         }
       }
       gl.bindVertexArray(gpuMesh.vao);
-      gl.drawElements(gl.TRIANGLES, gpuMesh.count, gpuMesh.indexType, 0);
+      if (instanced) {
+        this.bindInstances(item.mesh, gpuMesh);
+        gl.drawElementsInstanced(gl.TRIANGLES, gpuMesh.count, gpuMesh.indexType, 0, item.mesh.instanceCount);
+      } else {
+        gl.drawElements(gl.TRIANGLES, gpuMesh.count, gpuMesh.indexType, 0);
+      }
       this.drawCalls++;
-      this.triangles += gpuMesh.count / 3;
+      this.triangles += (gpuMesh.count / 3) * (instanced ? item.mesh.instanceCount : 1);
     }
     gl.bindVertexArray(null);
     if (this.shadowReady) {
@@ -343,14 +431,29 @@ export class WebGLRenderer {
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
   }
+  getDiagnostics() {
+    const bytes = (cache) => [...cache.entries.values()].reduce(
+      (sum, item) => sum + (item.resource?.byteSize ?? 0), 0);
+    const textures = [...this.textureCache.entries.keys()].reduce(
+      (sum, texture) => sum + texture.width * texture.height * 4, 0);
+    return { geometryResources: this.cache.size, textureResources: this.textureCache.size,
+      instanceResources: this.instanceCache.size,
+      estimatedGPUBytes: bytes(this.cache) + bytes(this.instanceCache) + textures +
+        (this.shadowSize ?? 0) ** 2 * 4 + this.canvas.width * this.canvas.height * 4,
+      note: 'Approximation excludes driver allocations, shader memory, and multisampling overhead.' };
+  }
   dispose() {
     const gl = this.gl;
+    if (!gl) return;
     this.cache.clear();
+    this.instanceCache.clear();
     this.textureCache.clear();
     for (const sampler of this.samplerCache.values()) gl.deleteSampler(sampler);
     this.samplerCache.clear();
     if (this.program) gl.deleteProgram(this.program);
+    if (this.instancedProgram) gl.deleteProgram(this.instancedProgram);
     if (this.shadowProgram) gl.deleteProgram(this.shadowProgram);
+    if (this.instancedShadowProgram) gl.deleteProgram(this.instancedShadowProgram);
     if (this.shadowFramebuffer) gl.deleteFramebuffer(this.shadowFramebuffer);
     if (this.shadowTexture) gl.deleteTexture(this.shadowTexture);
   }
