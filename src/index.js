@@ -7,6 +7,8 @@ export { Mesh } from './graphics/Mesh.js';
 export { Material } from './graphics/Material.js';
 export { PBRMaterial } from './graphics/PBRMaterial.js';
 export { Lighting } from './graphics/Lighting.js';
+export { ShadowSettings, shadowViewProjection } from './graphics/ShadowSettings.js';
+export { EnvironmentLighting } from './graphics/EnvironmentLighting.js';
 export { Texture2D } from './graphics/Texture2D.js';
 export { TextureSampler } from './graphics/TextureSampler.js';
 export { TextureManager } from './graphics/TextureManager.js';

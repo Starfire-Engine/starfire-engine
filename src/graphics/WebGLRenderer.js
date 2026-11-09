@@ -1,4 +1,4 @@
-import { fragmentGLSL, vertexGLSL } from './shaders.js';
+import { fragmentGLSL, vertexGLSL, shadowFragmentGLSL, shadowVertexGLSL } from './shaders.js';
 import { prepareGeometry } from '../geometry/Geometry.js';
 import { GeometryResourceCache } from './GeometryResourceCache.js';
 import { collectRenderables } from './RenderQueue.js';
@@ -7,6 +7,8 @@ import { TextureSampler } from './TextureSampler.js';
 import { TextureResourceCache } from './TextureResourceCache.js';
 import { resolveLighting } from './Lighting.js';
 import { resolveMaterial } from './PBRMaterial.js';
+import { shadowViewProjection } from './ShadowSettings.js';
+import { Mat4 } from '../math/Mat4.js';
 
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
@@ -20,9 +22,9 @@ function compile(gl, type, source) {
   }
   return shader;
 }
-function createProgram(gl) {
-  const vertex = compile(gl, gl.VERTEX_SHADER, vertexGLSL);
-  const fragment = compile(gl, gl.FRAGMENT_SHADER, fragmentGLSL);
+function createProgram(gl, vertexSource = vertexGLSL, fragmentSource = fragmentGLSL) {
+  const vertex = compile(gl, gl.VERTEX_SHADER, vertexSource);
+  const fragment = compile(gl, gl.FRAGMENT_SHADER, fragmentSource);
   const program = gl.createProgram();
   if (!program) throw new Error('Could not create WebGL program');
   gl.attachShader(program, vertex);
@@ -49,6 +51,7 @@ export class WebGLRenderer {
     this.fallbackMRTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]), { colorSpace: 'linear' });
     this.drawCalls = 0;
     this.triangles = 0;
+    this.shadowDrawCalls = 0;
     this.cache = new GeometryResourceCache((resource) => {
       this.gl.deleteVertexArray(resource.vao);
       this.gl.deleteBuffer(resource.vertexBuffer);
@@ -72,18 +75,75 @@ export class WebGLRenderer {
       lightDirection: gl.getUniformLocation(this.program, 'uLightDirection'),
       keyLight: gl.getUniformLocation(this.program, 'uKeyLight'),
       ambientLight: gl.getUniformLocation(this.program, 'uAmbientLight'),
-      exposure: gl.getUniformLocation(this.program, 'uExposure')
+      exposure: gl.getUniformLocation(this.program, 'uExposure'),
+      shadowViewProjection: gl.getUniformLocation(this.program, 'uShadowViewProjection'),
+      shadowParams: gl.getUniformLocation(this.program, 'uShadowParams'),
+      shadowMap: gl.getUniformLocation(this.program, 'uShadowMap'),
+      skyColor: gl.getUniformLocation(this.program, 'uSkyColor'),
+      horizonColor: gl.getUniformLocation(this.program, 'uHorizonColor'),
+      groundColor: gl.getUniformLocation(this.program, 'uGroundColor'),
+      environmentIntensity: gl.getUniformLocation(this.program, 'uEnvironmentIntensity')
     };
     gl.useProgram(this.program);
     gl.uniform1i(this.uniforms.baseColorTexture, 0);
     gl.uniform1i(this.uniforms.metallicRoughnessTexture, 1);
+    this.shadowProgram = createProgram(gl, shadowVertexGLSL, shadowFragmentGLSL);
+    this.shadowUniforms = {
+      viewProjection: gl.getUniformLocation(this.shadowProgram, 'uShadowViewProjection'),
+      model: gl.getUniformLocation(this.shadowProgram, 'uModel')
+    };
+    gl.useProgram(this.program);
+    gl.uniform1i(this.uniforms.shadowMap, 2);
+    this.shadowReady = true;
     this.texturingReady = true;
     this.pbrReady = true;
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
     gl.clearColor(0.023, 0.034, 0.063, 1);
+    this.ensureShadowResources(1); // Complete depth texture binding when shadows are off.
     this.resize();
+  }
+  ensureShadowResources(size) {
+    if (this.shadowTexture && this.shadowSize === size) return;
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+    if (!texture || !framebuffer) {
+      if (texture) gl.deleteTexture(texture);
+      if (framebuffer) gl.deleteFramebuffer(framebuffer);
+      throw new Error('Could not allocate WebGL shadow depth map');
+    }
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, size, size, 0,
+        gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, texture, 0);
+      gl.drawBuffers([gl.NONE]);
+      gl.readBuffer(gl.NONE);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        throw new Error('WebGL shadow framebuffer is incomplete');
+      }
+    } catch (error) {
+      gl.deleteFramebuffer(framebuffer);
+      gl.deleteTexture(texture);
+      throw error;
+    } finally {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+    if (this.shadowFramebuffer) gl.deleteFramebuffer(this.shadowFramebuffer);
+    if (this.shadowTexture) gl.deleteTexture(this.shadowTexture);
+    this.shadowTexture = texture;
+    this.shadowFramebuffer = framebuffer;
+    this.shadowSize = size;
   }
   resize() {
     const gl = this.gl;
@@ -174,20 +234,67 @@ export class WebGLRenderer {
   render(scene, camera) {
     this.resize();
     const gl = this.gl;
+    const lighting = resolveLighting(scene);
+    const shadows = lighting.shadows;
+    const shadowsActive = shadows.enabled && Boolean(this.shadowReady);
+    const renderables = collectRenderables(scene);
+    const shadowMatrix = shadowsActive
+      ? shadowViewProjection(lighting.direction, shadows, 'webgl') : Mat4.identity();
+    this.shadowDrawCalls = 0;
+    if (this.shadowReady) {
+      this.ensureShadowResources(shadowsActive ? shadows.mapSize : 1);
+    }
+    if (shadowsActive) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFramebuffer);
+      try {
+        gl.viewport(0, 0, shadows.mapSize, shadows.mapSize);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.colorMask(false, false, false, false);
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(2, 2);
+        gl.useProgram(this.shadowProgram);
+        gl.uniformMatrix4fv(this.shadowUniforms.viewProjection, false, shadowMatrix);
+        for (const item of renderables) {
+          const geometry = this.getGeometry(item.geometry);
+          gl.uniformMatrix4fv(this.shadowUniforms.model, false, item.modelMatrix);
+          gl.bindVertexArray(geometry.vao);
+          gl.drawElements(gl.TRIANGLES, geometry.count, geometry.indexType, 0);
+          this.shadowDrawCalls++;
+        }
+      } finally {
+        // An upload/draw failure must never leave the browser canvas bound to
+        // the shadow FBO or leave color writes disabled on the next frame.
+        gl.bindVertexArray(null);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+        gl.colorMask(true, true, true, true);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      }
+    }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.uniforms.viewProjection, false, camera.matrix(this.canvas.width / this.canvas.height, 'webgl'));
     gl.uniform3fv(this.uniforms.eye, camera.position);
     if (this.pbrReady) {
-      const lighting = resolveLighting(scene);
       gl.uniform3fv(this.uniforms.lightDirection, lighting.direction);
       gl.uniform4fv(this.uniforms.keyLight, [...lighting.color, lighting.intensity]);
       gl.uniform4fv(this.uniforms.ambientLight, [...lighting.ambientColor, lighting.ambientIntensity]);
       gl.uniform1f(this.uniforms.exposure, lighting.exposure);
+      if (this.shadowReady) {
+        gl.uniformMatrix4fv(this.uniforms.shadowViewProjection, false, shadowMatrix);
+        gl.uniform4fv(this.uniforms.shadowParams, [Number(shadowsActive), shadows.bias, shadows.strength,
+          1 / (shadowsActive ? shadows.mapSize : 1)]);
+        gl.uniform4fv(this.uniforms.skyColor, [...lighting.environment.skyColor, 0]);
+        gl.uniform4fv(this.uniforms.horizonColor, [...lighting.environment.horizonColor, 0]);
+        gl.uniform4fv(this.uniforms.groundColor, [...lighting.environment.groundColor, 0]);
+        gl.uniform1f(this.uniforms.environmentIntensity, lighting.environment.intensity);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
+        gl.activeTexture(gl.TEXTURE0);
+      }
     }
     this.drawCalls = 0;
     this.triangles = 0;
-    const renderables = collectRenderables(scene);
     this.cache.sweep(new Set(renderables.map((item) => item.geometry)));
     this.textureCache.sweep(new Set([
       this.fallbackTexture, this.fallbackMRTexture,
@@ -220,6 +327,11 @@ export class WebGLRenderer {
       this.triangles += gpuMesh.count / 3;
     }
     gl.bindVertexArray(null);
+    if (this.shadowReady) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+    }
     if (this.texturingReady) {
       gl.bindSampler(0, null);
       if (this.pbrReady) {
@@ -238,5 +350,8 @@ export class WebGLRenderer {
     for (const sampler of this.samplerCache.values()) gl.deleteSampler(sampler);
     this.samplerCache.clear();
     if (this.program) gl.deleteProgram(this.program);
+    if (this.shadowProgram) gl.deleteProgram(this.shadowProgram);
+    if (this.shadowFramebuffer) gl.deleteFramebuffer(this.shadowFramebuffer);
+    if (this.shadowTexture) gl.deleteTexture(this.shadowTexture);
   }
 }

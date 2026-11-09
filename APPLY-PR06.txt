@@ -1,0 +1,46 @@
+Starfire Engine v0.2.0 — PR 06: Lighting, Procedural Environment & Shadows
+Baseline: development branch, commit ea8fb3eaf9565101abae2dbea82e19513e31c3cf (after PR 05)
+
+This is a PATCH ZIP, not a complete repository.
+It does not contain .git, proprietary applications or RideOps assets.
+
+Windows PowerShell (run from your existing Starfire Engine clone):
+
+  git switch development
+  git pull --ff-only origin development
+  git switch -c feat/v0.2.0-shadows-environment
+
+  Expand-Archive "$HOME\Downloads\starfire-engine-v0.2.0-pr06-shadows-patch.zip" "$HOME\Downloads\starfire-pr06" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr06\*" . -Recurse -Force
+
+  npm run ci
+  npm run dev
+
+Browser verification:
+  http://localhost:5173/?renderer=webgpu
+  http://localhost:5173/?renderer=webgl2
+
+Check: existing GLB imported, metallic-roughness textures still render, directional
+shadow appears on nearby surfaces, SHADOW DRAWS is nonzero with checkbox checked,
+shadow checkbox disables/enables shadow pass, changing ENVIRONMENT slider changes
+PBR shading, no GPU shader errors in browser console, no stretched shadows or FBO errors.
+
+Review and push:
+  git diff --stat
+  git add src demo tests docs index.html README.md ROADMAP.md CHANGELOG.md APPLY-PR06.txt
+  git commit -m "feat: add PR 06 directional shadows and environment lighting"
+  git push -u origin feat/v0.2.0-shadows-environment
+
+Open a pull request FROM feat/v0.2.0-shadows-environment INTO development.
+Do not publish a release or move existing release tags until the hardware checks pass.
+
+Technical limits: one fixed ortho directional shadow volume; 3x3 PCF; simple
+procedural sky/horizon/ground reflection approximation, not true image-based HDR
+IBL or cubemap reflection probes; no cascades, point/spot shadows, contact-hardening,
+normal maps, transparent shadow casting or alpha-tested materials.
+
+This package passed 84/84 Node unit/integration tests in the packaging environment.
+Both GLSL shader pairs compiled/linked in EGL/OpenGL ES 3 software renderer;
+depth shadow framebuffer completeness also validated there. The local Chromium
+browser was blocked from loading the local server, so browser WebGPU testing must
+be done on a supported GPU/browser (e.g., RX 6600).

@@ -22,6 +22,7 @@ void main() {
 
 export const fragmentGLSL = `#version 300 es
 precision highp float;
+precision highp sampler2DShadow;
 #define PI 3.14159265358979323846
 in vec3 vWorldPosition;
 in vec3 vWorldNormal;
@@ -36,6 +37,13 @@ uniform vec3 uLightDirection;
 uniform vec4 uKeyLight; // rgb linear color, a intensity
 uniform vec4 uAmbientLight; // rgb linear color, a intensity
 uniform float uExposure;
+uniform mat4 uShadowViewProjection;
+uniform vec4 uShadowParams; // enabled, depth bias, strength, inverse resolution
+uniform sampler2DShadow uShadowMap;
+uniform vec4 uSkyColor;
+uniform vec4 uHorizonColor;
+uniform vec4 uGroundColor;
+uniform float uEnvironmentIntensity;
 out vec4 fragColor;
 
 float ggxDistribution(float NoH, float roughness) {
@@ -62,16 +70,38 @@ vec3 linearToSRGB(vec3 c) {
   vec3 low = 12.92 * c;
   return mix(high, low, vec3(lessThanEqual(c, vec3(0.0031308))));
 }
+vec3 environmentRadiance(float height) {
+  float t = clamp(height, 0.0, 1.0);
+  return height >= 0.0 ? mix(uHorizonColor.rgb, uSkyColor.rgb, t)
+                       : mix(uHorizonColor.rgb, uGroundColor.rgb, -clamp(height, -1.0, 0.0));
+}
+float shadowVisibility(vec3 worldPosition) {
+  if (uShadowParams.x < 0.5) return 1.0;
+  vec4 clip = uShadowViewProjection * vec4(worldPosition, 1.0);
+  vec3 ndc = clip.xyz / max(clip.w, 0.000001);
+  vec2 uv = ndc.xy * 0.5 + 0.5; // WebGL FBO origin is bottom-left
+  float depth = ndc.z * 0.5 + 0.5; // WebGL clip depth is -1..1
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth <= 0.0 || depth >= 1.0) return 1.0;
+  float visibility = 0.0;
+  for (int y = -1; y <= 1; ++y) {
+    for (int x = -1; x <= 1; ++x) {
+      visibility += texture(uShadowMap, vec3(uv + vec2(float(x), float(y)) * uShadowParams.w,
+        depth - uShadowParams.y));
+    }
+  }
+  return 1.0 - uShadowParams.z * (1.0 - visibility / 9.0);
+}
 void main() {
   vec3 n = normalize(vWorldNormal);
   vec3 l = normalize(uLightDirection);
   vec3 v = normalize(uEye - vWorldPosition);
   vec4 base = uColor * texture(uBaseColorTexture, vUV);
+  float shadow = shadowVisibility(vWorldPosition);
   if (uPBRParams.z < 0.5) {
     // Preserve the PR 03 look for legacy Material and plain {color} objects.
     float diffuse = max(dot(n, l), 0.0);
     float spec = pow(max(dot(n, normalize(l + v)), 0.0), 36.0) * 0.20;
-    vec3 lit = base.rgb * (0.29 + 0.71 * diffuse) + vec3(spec);
+    vec3 lit = base.rgb * (0.29 + 0.71 * diffuse * shadow) + vec3(spec * shadow);
     fragColor = vec4(lit, base.a);
     return;
   }
@@ -90,11 +120,16 @@ void main() {
   float G = geometrySchlickGGX(NoV, roughness) * geometrySchlickGGX(NoL, roughness);
   vec3 specular = (D * G * F) / max(4.0 * NoV * NoL, 0.0001);
   vec3 diffuse = (vec3(1.0) - F) * (1.0 - metallic) * base.rgb / PI;
-  vec3 direct = (diffuse + specular) * uKeyLight.rgb * uKeyLight.a * NoL;
+  vec3 direct = (diffuse + specular) * uKeyLight.rgb * uKeyLight.a * NoL * shadow;
   // Hemispheric constant fill is an approximation until the IBL milestone.
   vec3 ambient = uAmbientLight.rgb * uAmbientLight.a *
     (base.rgb * (1.0 - metallic) + F0 * 0.15 * (1.0 - 0.5 * roughness));
-  vec3 linearColor = (direct + ambient + uEmissive) * uExposure;
+  vec3 reflection = reflect(-v, n);
+  vec3 envDiffuse = environmentRadiance(n.y) * base.rgb * (1.0 - metallic);
+  vec3 envSpecular = environmentRadiance(reflection.y) * fresnelSchlick(NoV, F0) *
+    mix(1.0, 0.14, roughness);
+  vec3 environment = (envDiffuse + envSpecular) * uEnvironmentIntensity;
+  vec3 linearColor = (direct + ambient + environment + uEmissive) * uExposure;
   fragColor = vec4(linearToSRGB(toneMapACES(max(linearColor, vec3(0.0)))), base.a);
 }`;
 
@@ -107,6 +142,12 @@ struct Camera {
   keyLight: vec4<f32>,
   ambientLight: vec4<f32>,
   settings: vec4<f32>, // exposure in x
+  shadowViewProjection: mat4x4<f32>,
+  shadowParams: vec4<f32>, // enabled, depth bias, strength, inverse resolution
+  skyColor: vec4<f32>,
+  horizonColor: vec4<f32>,
+  groundColor: vec4<f32>,
+  environmentParams: vec4<f32>, // intensity in x
 };
 struct ObjectUniforms {
   model: mat4x4<f32>,
@@ -120,6 +161,8 @@ struct ObjectUniforms {
 @group(1) @binding(1) var baseColorSampler: sampler;
 @group(1) @binding(2) var metallicRoughnessTexture: texture_2d<f32>;
 @group(1) @binding(3) var metallicRoughnessSampler: sampler;
+@group(2) @binding(0) var shadowMap: texture_depth_2d;
+@group(2) @binding(1) var shadowSampler: sampler_comparison;
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) normal: vec3<f32>,
@@ -146,6 +189,35 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   let orientation = select(-1.0, 1.0, dot(c0, cross(c1, c2)) >= 0.0);
   out.worldNormal = (cofactors * input.normal) * orientation;
   return out;
+}
+// Depth-only entrypoint shares the scene/object buffer bindings with the PBR pass.
+@vertex
+fn shadowVertex(input: VertexInput) -> @builtin(position) vec4<f32> {
+  return camera.shadowViewProjection * object.model * vec4<f32>(input.position, 1.0);
+}
+fn environmentRadiance(height: f32) -> vec3<f32> {
+  if (height >= 0.0) {
+    return mix(camera.horizonColor.rgb, camera.skyColor.rgb, clamp(height, 0.0, 1.0));
+  }
+  return mix(camera.horizonColor.rgb, camera.groundColor.rgb, clamp(-height, 0.0, 1.0));
+}
+fn shadowVisibility(worldPosition: vec3<f32>) -> f32 {
+  if (camera.shadowParams.x < 0.5) { return 1.0; }
+  let clip = camera.shadowViewProjection * vec4<f32>(worldPosition, 1.0);
+  let ndc = clip.xyz / max(clip.w, 0.000001);
+  let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5); // WebGPU top-left texture origin
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z <= 0.0 || ndc.z >= 1.0) {
+    return 1.0;
+  }
+  var visibility = 0.0;
+  for (var y: i32 = -1; y <= 1; y = y + 1) {
+    for (var x: i32 = -1; x <= 1; x = x + 1) {
+      let offset = vec2<f32>(f32(x), f32(y)) * camera.shadowParams.w;
+      visibility += textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset,
+        ndc.z - camera.shadowParams.y);
+    }
+  }
+  return 1.0 - camera.shadowParams.z * (1.0 - visibility / 9.0);
 }
 fn ggxDistribution(NoH: f32, roughness: f32) -> f32 {
   let a = roughness * roughness;
@@ -177,10 +249,11 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let l = normalize(camera.lightDirection.xyz);
   let v = normalize(camera.eye.xyz - input.worldPosition);
   let base = object.color * textureSample(baseColorTexture, baseColorSampler, input.uv);
+  let shadow = shadowVisibility(input.worldPosition);
   if (object.pbrParams.z < 0.5) {
     let diffuse = max(dot(n, l), 0.0);
     let spec = pow(max(dot(n, normalize(l + v)), 0.0), 36.0) * 0.20;
-    let lit = base.rgb * (0.29 + 0.71 * diffuse) + vec3<f32>(spec);
+    let lit = base.rgb * (0.29 + 0.71 * diffuse * shadow) + vec3<f32>(spec * shadow);
     return vec4<f32>(lit, base.a);
   }
   let mr = textureSample(metallicRoughnessTexture, metallicRoughnessSampler, input.uv);
@@ -197,9 +270,28 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let G = geometrySchlickGGX(NoV, roughness) * geometrySchlickGGX(NoL, roughness);
   let specular = (D * G * F) / max(4.0 * NoV * NoL, 0.0001);
   let diffuse = (vec3<f32>(1.0) - F) * (1.0 - metallic) * base.rgb / PI;
-  let direct = (diffuse + specular) * camera.keyLight.rgb * camera.keyLight.a * NoL;
+  let direct = (diffuse + specular) * camera.keyLight.rgb * camera.keyLight.a * NoL * shadow;
   let ambient = camera.ambientLight.rgb * camera.ambientLight.a *
     (base.rgb * (1.0 - metallic) + F0 * 0.15 * (1.0 - 0.5 * roughness));
-  let linearColor = (direct + ambient + object.emissive.rgb) * camera.settings.x;
+  let reflection = reflect(-v, n);
+  let envDiffuse = environmentRadiance(n.y) * base.rgb * (1.0 - metallic);
+  let envSpecular = environmentRadiance(reflection.y) * fresnelSchlick(NoV, F0) *
+    mix(1.0, 0.14, roughness);
+  let environment = (envDiffuse + envSpecular) * camera.environmentParams.x;
+  let linearColor = (direct + ambient + environment + object.emissive.rgb) * camera.settings.x;
   return vec4<f32>(linearToSRGB(toneMapACES(max(linearColor, vec3<f32>(0.0)))), base.a);
 }`;
+
+
+/** Depth-only program for the WebGL 2 directional shadow pass. */
+export const shadowVertexGLSL = `#version 300 es
+layout(location = 0) in vec3 aPosition;
+uniform mat4 uShadowViewProjection;
+uniform mat4 uModel;
+void main() {
+  gl_Position = uShadowViewProjection * uModel * vec4(aPosition, 1.0);
+}`;
+export const shadowFragmentGLSL = `#version 300 es
+precision highp float;
+void main() {}
+`;

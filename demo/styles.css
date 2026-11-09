@@ -44,7 +44,7 @@ p { margin: 0; max-width: 385px; font-size: 14px; line-height: 1.85; color: #96a
 .panel-heading { display: flex; align-items: center; gap: 9px; padding: 14px 17px; color: #85b4ee; font-size: 10px; letter-spacing: .17em; font-weight: 800; border-bottom: 1px solid rgba(119,163,225,.19); }
 .panel-heading .status-pulse { width: 6px; height: 6px; }
 .panel-corner { margin-left: auto; font-size: 8px; color: #50dfa8; }
-.stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); padding: 17px 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); padding: 17px 0; }
 .stat { padding: 0 14px; border-right: 1px solid rgba(119,163,225,.17); }
 .stat:last-child { border-right: 0; }
 .stat label { display: block; font-size: 8px; letter-spacing: .12em; color: #7089a8; margin-bottom: 7px; white-space: nowrap; }
@@ -105,3 +105,6 @@ p { margin: 0; max-width: 385px; font-size: 14px; line-height: 1.85; color: #96a
 .exposure-control input { width:86px; min-width:30px; accent-color:#65bfff; }
 .exposure-control output { min-width:22px; text-align:right; font-variant-numeric:tabular-nums; color:#eef5ff; }
 @media (max-width:640px) { .exposure-control { grid-column:1 / -1; padding:10px; min-width:0; } .exposure-control input { flex:1; } }
+
+/* PR 06: controls for procedural environment illumination and directional shadows. */
+.exposure-control input[type="checkbox"] { width:17px; height:17px; accent-color:#65bfff; margin-left:auto; }

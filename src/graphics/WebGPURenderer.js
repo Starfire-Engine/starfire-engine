@@ -7,6 +7,7 @@ import { TextureSampler } from './TextureSampler.js';
 import { TextureResourceCache } from './TextureResourceCache.js';
 import { resolveLighting } from './Lighting.js';
 import { resolveMaterial } from './PBRMaterial.js';
+import { shadowViewProjection } from './ShadowSettings.js';
 
 const MAX_OBJECTS = 2048;
 const OBJECT_STRIDE = 256; // WebGPU dynamic uniform offsets must respect 256-byte alignment.
@@ -27,6 +28,7 @@ export class WebGPURenderer {
     this.fallbackMRTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]), { colorSpace: 'linear' });
     this.drawCalls = 0;
     this.triangles = 0;
+    this.shadowDrawCalls = 0;
     this.lost = false;
   }
   async initialize() {
@@ -37,7 +39,7 @@ export class WebGPURenderer {
     this.device = device;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     device.lost.then(() => { this.lost = true; });
-    this.cameraBuffer = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.cameraBuffer = device.createBuffer({ size: 288, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.objectBuffer = device.createBuffer({ size: MAX_OBJECTS * OBJECT_STRIDE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const bindGroupLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
@@ -53,12 +55,18 @@ export class WebGPURenderer {
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
     ] });
+    this.shadowBindGroupLayout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth', viewDimension: '2d' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'comparison' } }
+    ] });
+    this.shadowSampler = device.createSampler({ compare: 'less-equal', minFilter: 'nearest', magFilter: 'nearest',
+      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
     const module = device.createShaderModule({ code: shaderWGSL });
     const info = await module.getCompilationInfo();
     const errors = info.messages.filter((message) => message.type === 'error');
     if (errors.length) throw new Error(`WGSL compilation error: ${errors.map((e) => e.message).join('; ')}`);
     this.pipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout, this.textureBindGroupLayout] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout, this.textureBindGroupLayout, this.shadowBindGroupLayout] }),
       vertex: {
         module, entryPoint: 'vertexMain',
         buffers: [{ arrayStride: 32, attributes: [
@@ -71,6 +79,17 @@ export class WebGPURenderer {
       primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
     });
+    this.shadowPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+      vertex: { module, entryPoint: 'shadowVertex', buffers: [{ arrayStride: 32, attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x3' },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' },
+        { shaderLocation: 2, offset: 24, format: 'float32x2' }
+      ] }] },
+      primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less',
+        depthBias: 2, depthBiasSlopeScale: 2 }
+    });
     // Delay context acquisition until shader/pipeline compilation succeeds.
     // If WebGPU is unavailable, WebGL 2 can still use the same canvas.
     const context = this.canvas.getContext('webgpu');
@@ -78,6 +97,26 @@ export class WebGPURenderer {
     this.context = context;
     context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
     this.resize();
+    this.ensureShadowResources(1); // Valid fallback depth binding even if shadows are disabled.
+  }
+  /** Reallocate only when the requested shadow-map resolution changes. */
+  ensureShadowResources(size) {
+    if (this.shadowTexture && this.shadowSize === size) return;
+    const texture = this.device.createTexture({
+      size: [size, size, 1], format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    let bindGroup;
+    try {
+      bindGroup = this.device.createBindGroup({ layout: this.shadowBindGroupLayout, entries: [
+        { binding: 0, resource: texture.createView() },
+        { binding: 1, resource: this.shadowSampler }
+      ] });
+    } catch (error) { texture.destroy(); throw error; }
+    this.shadowTexture?.destroy();
+    this.shadowTexture = texture;
+    this.shadowSize = size;
+    this.shadowBindGroup = bindGroup;
   }
   resize() {
     const dpr = Math.min(this.pixelRatioCap, window.devicePixelRatio || 1);
@@ -190,13 +229,25 @@ export class WebGPURenderer {
     this.resize();
     const device = this.device;
     const lighting = resolveLighting(scene);
-    const uniforms = new Float32Array(36);
+    const shadows = lighting.shadows;
+    const shadowsActive = shadows.enabled && Boolean(this.shadowPipeline);
+    if (this.shadowPipeline) this.ensureShadowResources(shadowsActive ? shadows.mapSize : 1);
+    const shadowMatrix = shadowsActive
+      ? shadowViewProjection(lighting.direction, shadows, 'webgpu')
+      : new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    const uniforms = new Float32Array(72);
     uniforms.set(camera.matrix(this.canvas.width / this.canvas.height, 'webgpu'), 0);
     uniforms.set([...lighting.direction, 0], 16);
     uniforms.set([...camera.position, 1], 20);
     uniforms.set([...lighting.color, lighting.intensity], 24);
     uniforms.set([...lighting.ambientColor, lighting.ambientIntensity], 28);
     uniforms.set([lighting.exposure, 0, 0, 0], 32);
+    uniforms.set(shadowMatrix, 36);
+    uniforms.set([Number(shadowsActive), shadows.bias, shadows.strength, 1 / (shadowsActive ? shadows.mapSize : 1)], 52);
+    uniforms.set([...lighting.environment.skyColor, 0], 56);
+    uniforms.set([...lighting.environment.horizonColor, 0], 60);
+    uniforms.set([...lighting.environment.groundColor, 0], 64);
+    uniforms.set([lighting.environment.intensity, 0, 0, 0], 68);
     device.queue.writeBuffer(this.cameraBuffer, 0, uniforms);
     const meshes = collectRenderables(scene);
     this.cache.sweep(new Set(meshes.map((item) => item.geometry)));
@@ -217,6 +268,24 @@ export class WebGPURenderer {
     });
     if (meshes.length) device.queue.writeBuffer(this.objectBuffer, 0, objects);
     const encoder = device.createCommandEncoder();
+    this.shadowDrawCalls = 0;
+    if (shadowsActive) {
+      const depthPass = encoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: { view: this.shadowTexture.createView(),
+          depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' }
+      });
+      depthPass.setPipeline(this.shadowPipeline);
+      meshes.forEach((item, index) => {
+        const buffer = this.getGeometry(item.geometry);
+        depthPass.setBindGroup(0, this.bindGroup, [index * OBJECT_STRIDE]);
+        depthPass.setVertexBuffer(0, buffer.vertexBuffer);
+        depthPass.setIndexBuffer(buffer.indexBuffer, buffer.indexFormat);
+        depthPass.drawIndexed(buffer.count);
+        this.shadowDrawCalls++;
+      });
+      depthPass.end();
+    }
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: this.context.getCurrentTexture().createView(),
@@ -229,6 +298,7 @@ export class WebGPURenderer {
       }
     });
     pass.setPipeline(this.pipeline);
+    if (this.shadowBindGroup) pass.setBindGroup(2, this.shadowBindGroup);
     this.drawCalls = 0;
     this.triangles = 0;
     meshes.forEach((entity, index) => {
@@ -250,6 +320,9 @@ export class WebGPURenderer {
     this.textureCache.clear();
     this.samplerCache.clear();
     this.depthTexture?.destroy();
+    this.shadowTexture?.destroy();
+    this.shadowTexture = null;
+    this.shadowBindGroup = null;
     this.cameraBuffer?.destroy();
     this.objectBuffer?.destroy();
   }

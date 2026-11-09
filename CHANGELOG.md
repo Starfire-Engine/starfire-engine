@@ -1,3 +1,12 @@
+## Unreleased — 0.2.0 / PR 06
+
+- Add opt-in directional light depth shadow maps with 3x3 PCF in both WebGPU and WebGL 2.
+- Add configurable `ShadowSettings` (coverage, bias, strength, map size) and `EnvironmentLighting` (sky, horizon, ground, intensity).
+- Add backend-correct orthographic projection and shadow matrix generation, with near-vertical light handling.
+- Add a depth-only shadow draw pass, framebuffer/depth texture lifecycle, and demo controls for shadows and environment intensity.
+- Preserve legacy material handling and default-disable shadow maps for existing scenes.
+- Clarify limitations: one fixed-volume directional shadow, simple procedural environment approximation; no HDR cubemaps, cascaded shadows, transparent shadow casters or normal maps.
+
 ## Unreleased — v0.2.0 development / PR 02–05
 
 - PR 05: Add a static glTF 2.0 / binary GLB importer with validated binary chunks, accessors and external resources.

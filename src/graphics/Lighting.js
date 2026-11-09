@@ -1,3 +1,6 @@
+import { ShadowSettings, resolveShadowSettings } from './ShadowSettings.js';
+import { EnvironmentLighting, resolveEnvironment } from './EnvironmentLighting.js';
+
 /**
  * A single directional key light and constant ambient fill. This is a v0.2
  * preview, not an image-based lighting system or a scene light collection.
@@ -16,7 +19,8 @@ function finiteNonNegative(value, name) {
 }
 export class Lighting {
   constructor({ direction = [0.65, 0.95, 0.42], color = [1, 1, 1], intensity = 3,
-    ambientColor = [1, 1, 1], ambientIntensity = 0.18, exposure = 1 } = {}) {
+    ambientColor = [1, 1, 1], ambientIntensity = 0.18, exposure = 1,
+    shadows = new ShadowSettings(), environment = new EnvironmentLighting() } = {}) {
     if (!Array.isArray(direction) || direction.length !== 3 || !direction.every(Number.isFinite) ||
         Math.hypot(...direction) < 1e-8) {
       throw new RangeError('Lighting.direction must be a nonzero finite vec3');
@@ -28,6 +32,10 @@ export class Lighting {
     this.ambientIntensity = finiteNonNegative(ambientIntensity, 'Lighting.ambientIntensity');
     if (!(Number.isFinite(exposure) && exposure > 0)) throw new RangeError('Lighting.exposure must be positive and finite');
     this.exposure = exposure;
+    if (!(shadows instanceof ShadowSettings)) throw new TypeError('Lighting.shadows requires ShadowSettings');
+    if (!(environment instanceof EnvironmentLighting)) throw new TypeError('Lighting.environment requires EnvironmentLighting');
+    this.shadows = shadows;
+    this.environment = environment;
   }
 }
 
@@ -45,6 +53,7 @@ export function resolveLighting(scene) {
   const exposure = lighting.exposure;
   if (!(Number.isFinite(exposure) && exposure > 0)) throw new RangeError('Lighting.exposure must be positive and finite');
   const length = Math.hypot(...d);
-  return { direction: d.map((n) => n / length), color, intensity, ambientColor, ambientIntensity, exposure };
+  return { direction: d.map((n) => n / length), color, intensity, ambientColor, ambientIntensity,
+    exposure, shadows: resolveShadowSettings(lighting.shadows), environment: resolveEnvironment(lighting.environment) };
 }
 Lighting.DEFAULT = Object.freeze(new Lighting());

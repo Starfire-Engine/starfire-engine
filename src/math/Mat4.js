@@ -34,6 +34,28 @@ export const Mat4 = {
     }
     return out;
   },
+  /** Orthographic projection with backend-specific clip depth range. */
+  orthographic(left, right, bottom, top, near, far, depthMode = 'webgpu') {
+    if (![left, right, bottom, top, near, far].every(Number.isFinite) ||
+        !(right > left && top > bottom && near > 0 && far > near)) {
+      throw new RangeError('Invalid orthographic dimensions');
+    }
+    const out = Mat4.identity();
+    out[0] = 2 / (right - left);
+    out[5] = 2 / (top - bottom);
+    out[12] = -(right + left) / (right - left);
+    out[13] = -(top + bottom) / (top - bottom);
+    if (depthMode === 'webgpu') {
+      out[10] = 1 / (near - far);
+      out[14] = near / (near - far);
+    } else if (depthMode === 'webgl') {
+      out[10] = 2 / (near - far);
+      out[14] = (far + near) / (near - far);
+    } else {
+      throw new TypeError(`Unknown depth convention: ${depthMode}`);
+    }
+    return out;
+  },
   lookAt(eye, target, up = [0, 1, 0]) {
     const unit = (v) => {
       const n = Math.hypot(...v);

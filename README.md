@@ -28,6 +28,20 @@ The browser demo runs an original 3D scene through **our own rendering code**, w
 - Live FPS, draw-call, triangle, and entity counters.
 - Basic math/scene unit tests, CI, and a zero-dependency local dev server.
 
+### Development preview: PR 06 lighting and shadows
+
+The `development` branch adds opt-in directional shadow mapping with 3×3 percentage-closer filtering on WebGPU and WebGL 2, plus a configurable procedural sky/horizon/ground reflection approximation for PBR materials.
+
+```js
+import { Lighting, ShadowSettings, EnvironmentLighting } from './src/index.js';
+scene.lighting = new Lighting({
+  shadows: new ShadowSettings({ enabled: true, mapSize: 1024, radius: 14, bias: 0.0025 }),
+  environment: new EnvironmentLighting({ intensity: 0.8 })
+});
+```
+
+This is **not** HDR image-based lighting, physically accurate prefiltered reflection probes, cascaded shadows, or a general multiple-light system. Shadow coverage is a fixed orthographic world-space region centered on `shadows.center`. Increase `radius` for larger scenes (at a cost to shadow detail), or disable shadows to avoid the extra draw pass. Shadow-map sizes: 256, 512, 1024, 2048.
+
 ### Not yet implemented
 
 The published v0.1.0 tag does not include PBR materials, textures or glTF loading. Shadows, animation mixer, audio, general rigid-body physics, scripting, scene editor, authoring tools, multiplayer and production benchmarks remain future work. See [ROADMAP.md](ROADMAP.md).

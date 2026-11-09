@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, TextureSampler, GLTFLoader } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, ShadowSettings, EnvironmentLighting, TextureSampler, GLTFLoader } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -13,9 +13,12 @@ $('backendSelect').addEventListener('change', (event) => {
 });
 
 async function createScene() {
-  const scene = new Scene('Starfire Engine / PBR Technical Preview');
+  const scene = new Scene('Starfire Engine / Shadow & Environment Lighting Preview');
   scene.lighting = new Lighting({ direction: [0.65,0.95,0.42], color:[1,0.96,0.88],
-    intensity: 3.8, ambientColor:[0.75,0.85,1], ambientIntensity:0.23, exposure:1 });
+    intensity: 3.8, ambientColor:[0.75,0.85,1], ambientIntensity:0.23, exposure:1,
+    shadows: new ShadowSettings({ enabled:true, mapSize:1024, radius:14, distance:40, near:0.5, far:100, bias:0.0025 }),
+    environment: new EnvironmentLighting({ skyColor:[0.20,0.33,0.66], horizonColor:[0.56,0.60,0.76],
+      groundColor:[0.05,0.07,0.12], intensity:0.8 }) });
   const box = createBox();
   // PR 03: load an original, public test image once, then share it across meshes.
   const textures = new TextureManager();
@@ -129,13 +132,25 @@ async function boot() {
     };
     exposure.addEventListener('input', updateExposure);
     updateExposure();
+    const shadowToggle = $('shadowToggle');
+    shadowToggle.checked = scene.lighting.shadows.enabled;
+    shadowToggle.addEventListener('change', () => { scene.lighting.shadows.enabled = shadowToggle.checked; });
+    const envInput = $('environmentIntensity');
+    const envValue = $('environmentValue');
+    const updateEnvironment = () => {
+      scene.lighting.environment.intensity = Number(envInput.value);
+      envValue.textContent = scene.lighting.environment.intensity.toFixed(1);
+    };
+    envInput.addEventListener('input', updateEnvironment);
+    updateEnvironment();
     $('renderer').textContent = engine.renderer.name.toUpperCase();
-    $('engineStatus').textContent = 'All systems operational • GLB imported';
+    $('engineStatus').textContent = 'All systems operational • Shadows / environment / GLB';
     engine.onStats = ({ fps, renderer, entities, drawCalls, triangles }) => {
       $('fps').textContent = fps;
       $('renderer').textContent = renderer.toUpperCase();
       $('entities').textContent = entities;
       $('drawcalls').textContent = drawCalls;
+      $('shadowDraws').textContent = engine.renderer.shadowDrawCalls ?? 0;
       $('triangles').textContent = triangles.toLocaleString();
     };
     engine.onError = (error) => {

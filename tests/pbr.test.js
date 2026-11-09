@@ -129,7 +129,7 @@ test('WebGPU render packs camera lighting and per-object metallic-roughness unif
     r.render(scene,{position:[0,0,5],matrix(){return Mat4.identity()}});
     const camera=writes.find(w=>w.buffer.type==='camera').data;
     const object=writes.find(w=>w.buffer.type==='object').data;
-    assert.equal(camera.length,36);
+    assert.equal(camera.length,72);
     assert.deepEqual([...camera.slice(16,19)],[0,1,0]);
     assert.deepEqual([...camera.slice(24,28)],[.5,1,.5,4]);
     assert.ok(Math.abs(camera[32]-1.2)<1e-6);
