@@ -1,18 +1,46 @@
 name: CI
 on:
   push:
+    branches: [main, development]
+    tags: ['v*']
   pull_request:
+    branches: [main, development]
 permissions:
   contents: read
 jobs:
   validation:
+    name: Validate Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax, tests, package and release audit
+        run: npm run release:check
+  release-artifact:
+    name: Package tagged SDK
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify source syntax
-        run: npm run check
-      - name: Unit tests
-        run: npm test
+      - name: Build SDK tarball and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist --ignore-scripts
+          cd dist
+          sha256sum -- *.tgz > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starfire-engine-sdk-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error

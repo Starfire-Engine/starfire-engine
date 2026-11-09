@@ -1,11 +1,13 @@
 {
   "name": "@starfire/engine",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-rc.1",
   "private": false,
-  "description": "An experimental, dependency-free 3D rendering and scene engine for the web.",
+  "description": "Open-source 3D rendering and asset engine for the web, with WebGPU and WebGL 2 backends.",
   "type": "module",
   "license": "Apache-2.0",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "exports": {
     ".": "./src/index.js",
     "./math": "./src/math/index.js",
@@ -17,7 +19,21 @@
     "start": "node scripts/serve.mjs",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check.mjs",
-    "ci": "npm run check && npm test"
+    "ci": "npm run check && npm test",
+    "release:check": "npm run ci && node scripts/release-check.mjs"
   },
-  "keywords": ["webgpu", "webgl2", "3d", "graphics", "game-engine", "open-source"]
+  "keywords": [
+    "webgpu",
+    "webgl2",
+    "3d",
+    "graphics",
+    "game-engine",
+    "open-source"
+  ],
+  "files": [
+    "src/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ]
 }

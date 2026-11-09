@@ -1,58 +1,48 @@
-## Unreleased — 0.2.0 / PR 06
-
-- Add opt-in directional light depth shadow maps with 3x3 PCF in both WebGPU and WebGL 2.
-- Add configurable `ShadowSettings` (coverage, bias, strength, map size) and `EnvironmentLighting` (sky, horizon, ground, intensity).
-- Add backend-correct orthographic projection and shadow matrix generation, with near-vertical light handling.
-- Add a depth-only shadow draw pass, framebuffer/depth texture lifecycle, and demo controls for shadows and environment intensity.
-- Preserve legacy material handling and default-disable shadow maps for existing scenes.
-- Clarify limitations: one fixed-volume directional shadow, simple procedural environment approximation; no HDR cubemaps, cascaded shadows, transparent shadow casters or normal maps.
-
-## Unreleased — v0.2.0 development / PR 02–05
-
-- PR 05: Add a static glTF 2.0 / binary GLB importer with validated binary chunks, accessors and external resources.
-- PR 05: Reconstruct nested object transforms, instanced meshes and multi-primitive meshes; map standard PBR materials with embedded or external PNG/JPEG textures.
-- PR 05: Generate missing normals, implement `Transform.setMatrix()`, add a public Starfire Relay GLB model and importer regression tests.
-- PR 05: Reject unsupported features explicitly (animation, skins, sparse accessors, normal maps, alpha blending, Draco and other extensions).
-
-
-- PR 04: Add a first-pass metallic-roughness Cook–Torrance GGX PBR material and paired WGSL/GLSL shaders.
-- PR 04: Introduce scene-level `Lighting` with directional color/intensity, ambient approximation, and exposure.
-- PR 04: Support sRGB base-color and linear metallic-roughness textures (roughness G, metallic B), emissive color, ACES-fitted tonemapping, and a material gallery.
-- PR 04: Keep legacy materials on their original lighting path; IBL, shadows, normal maps, and transparent materials remain planned.
-
-
-- Introduce attribute-based geometry supporting positions, normals, UVs and extra named attributes.
-- Add support for Uint32 indices in both WebGPU and WebGL 2 renderers.
-- Add parent/child scene hierarchy and quaternion transforms.
-- Share render collection and release unreferenced GPU geometry allocations automatically.
-- Add UV sphere and plane geometry, test coverage and a hierarchy demo.
-- Retain compatibility with the v0.1.x interleaved geometry representation.
-
-- Add PR 03 texture/sampler/material APIs, browser image loading, GPU texture reuse, and textured demo support on WebGPU and WebGL 2.
-
 # Changelog
 
-## [0.1.0-alpha.1] - 2026-11-08
+All notable public-release changes to Starfire Engine are recorded here. The v0.2.0 release is a graphics and asset **capability milestone**, not a complete game-development SDK.
+
+## [0.2.0-rc.1] — Release candidate (2026-11-09)
 
 ### Added
-- Starfire Engine runtime and entity/component scene graph.
-- Custom WebGPU renderer using WGSL, with WebGL 2 fallback using GLSL ES 3.00.
-- Camera, orbit controls, basic lit geometry and reusable material data.
-- Dependency-free, browser-based interactive playground.
-- Node-based local static server, automated tests, project documentation, and CI.
+
+- Two independent browser graphics backends: upgraded WebGPU/WGSL and WebGL 2/GLSL ES 3 pipelines.
+- Attribute-based geometry, 16-/32-bit indices, new plane/sphere primitives, parent-child scene transforms and quaternions.
+- Typed texture/sampler/material APIs, browser image loading, GPU texture reuse and cleanup.
+- First-pass metallic-roughness PBR shading, direct directional light, emissive color, tone mapping and exposure.
+- Static glTF 2.0 and GLB subset importing, nested scene nodes, material mapping, and original Starfire Relay sample model.
+- Optional directional shadow mapping with PCF filtering and simple procedural environment lighting approximation.
+- Conservative frustum culling, explicit instanced mesh rendering, CPU-frame timing and resource diagnostics.
+- Public demo: texture and PBR material gallery, GLB object, shadow controls, 256-instance stress mode and benchmark readout.
+- Regression tests for the graphics pipeline, importer, hierarchy, resource lifecycle, shaders and rendering state.
+
+### Fixed
+
+- Invalid WGSL `inverse()` call prevented the original WebGPU shader from compiling.
+- WebGPU depth texture could remain uninitialized when the canvas already matched its display size.
+- Local static server could expose project files; replaced with an explicit public file/folder allowlist.
+- Customized orbit-camera reset now restores its initial state.
+- Imported scene ownership transfer no longer fails when moving models between scenes in the demo.
+- Improved partial renderer resource cleanup and error paths.
+
+### Release-candidate limitations
+
+- Full cross-browser GPU validation and PR 07 real-hardware benchmarking remain release gates for v0.2.0.
+- No gameplay physics, editor, animations, audio system or packaging toolchain; these belong to future capability milestones.
+- The GLB importer is intentionally static and does not support every glTF extension.
+- Shadows are single-directional and fixed-volume; no cascades, HDR IBL, or reflection probes.
+- CPU render submission timing is **not** measured GPU execution time, and VRAM estimates are approximate.
+- Pre-1.0 API compatibility may change; consult [the versioning policy](docs/VERSIONING-AND-1.0.md).
+
+## [0.1.0-alpha.1] — 2026-11-08
+
+### Added
+
+- Original experimental WebGPU renderer, with separate WebGL 2 fallback.
+- Basic scene/entity/component storage, math, transforms and perspective camera controls.
+- Indexed box geometry, directional diffuse/specular lighting and interactive browser demo.
+- Open-source licensing, documentation, local development server and Node.js tests/CI.
 
 ### Known limitations
-- Experimental renderer: basic Lambert/specular illumination, not PBR or photorealistic yet.
-- No asset import pipeline, editor, physics, networking, animation mixer, or audio yet.
-- Browser capability requirements apply; WebGPU and WebGL 2 availability vary.
 
-
-## Unreleased — v0.2.0 PR 07 (Performance & Developer Diagnostics)
-
-- Added versioned conservative local bounds, six-plane camera/shadow frustum culling, and separate main/shadow visibility metrics.
-- Added explicit indexed GPU instancing for WebGPU and WebGL 2 (`InstancedMesh`), with instance buffer versioning and cleanup.
-- Added CPU-side per-frame update/render-submission timings with correct GPU timing null semantics.
-- Added resident GPU resource counts and explicitly approximate GPU byte estimates.
-- Added stress-demo and benchmarking controls; refined demo viewport layout.
-- Hardened partial WebGL startup cleanup and updated developer release/versioning policy to require large `0.x.0` capability leaps.
-- Not yet verified on physical Radeon RX 6600 hardware; release must remain experimental until validated.
+- Experimental first rendering prototype; lacked the asset, material and performance capabilities introduced in v0.2.0.
