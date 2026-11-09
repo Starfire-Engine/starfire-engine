@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, TextureSampler } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, TextureSampler, GLTFLoader } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -73,6 +73,12 @@ async function createScene() {
     plinth.transform.scale=[1.35,.18,1.35];
     scene.add(plinth);
   }
+  // PR 05: import a real, original binary glTF 2.0 asset with nested nodes,
+  // metallic-roughness materials and images embedded inside the GLB file.
+  const relay = await new GLTFLoader().load('/assets/models/starfire-relay.glb');
+  for (const root of relay.roots) scene.add(root);
+  if (relay.warnings.length) console.warn('Starfire GLB import:', ...relay.warnings);
+  // The demo retains the decoded asset images for its lifetime.
   const rings = [];
   for (let i = 0; i < 12; i++) {
     const angle = 2 * Math.PI * i / 12;
@@ -124,7 +130,7 @@ async function boot() {
     exposure.addEventListener('input', updateExposure);
     updateExposure();
     $('renderer').textContent = engine.renderer.name.toUpperCase();
-    $('engineStatus').textContent = 'All systems operational';
+    $('engineStatus').textContent = 'All systems operational • GLB imported';
     engine.onStats = ({ fps, renderer, entities, drawCalls, triangles }) => {
       $('fps').textContent = fps;
       $('renderer').textContent = renderer.toUpperCase();

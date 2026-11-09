@@ -1,4 +1,10 @@
-## Unreleased — v0.2.0 development / PR 02–04
+## Unreleased — v0.2.0 development / PR 02–05
+
+- PR 05: Add a static glTF 2.0 / binary GLB importer with validated binary chunks, accessors and external resources.
+- PR 05: Reconstruct nested object transforms, instanced meshes and multi-primitive meshes; map standard PBR materials with embedded or external PNG/JPEG textures.
+- PR 05: Generate missing normals, implement `Transform.setMatrix()`, add a public Starfire Relay GLB model and importer regression tests.
+- PR 05: Reject unsupported features explicitly (animation, skins, sparse accessors, normal maps, alpha blending, Draco and other extensions).
+
 
 - PR 04: Add a first-pass metallic-roughness Cook–Torrance GGX PBR material and paired WGSL/GLSL shaders.
 - PR 04: Introduce scene-level `Lighting` with directional color/intensity, ambient approximation, and exposure.

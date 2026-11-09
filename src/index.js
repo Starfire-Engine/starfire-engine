@@ -15,3 +15,4 @@ export { collectRenderables } from './graphics/RenderQueue.js';
 export { Vec3, Mat4 } from './math/index.js';
 export { createBox, createPlane, createSphere } from './geometry/primitives.js';
 export { OrbitControls } from './input/OrbitControls.js';
+export { GLTFLoader, parseGLB, decodeAccessor } from './assets/index.js';

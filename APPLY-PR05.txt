@@ -1,0 +1,30 @@
+Starfire Engine v0.2.0 — PR 05 Static glTF/GLB Importing
+======================================================
+Base: development branch commit 9c438aca3cddd065091bc0737ad94d8f9ff16045
+Patch: changed files only, no .git directory, no dependencies.
+
+PowerShell (in the actual local starfire-engine repository):
+  git switch development
+  git pull --ff-only origin development
+  git switch -c feat/v0.2.0-gltf-import
+
+Extract the ZIP to a temporary folder, then overlay its contents at the repo root:
+  Expand-Archive "$HOME\Downloads\starfire-engine-v0.2.0-pr05-glb-patch.zip" "$HOME\Downloads\starfire-pr05" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr05\*" "." -Recurse -Force
+
+Validate:
+  npm run ci
+  npm run dev
+
+Open:
+  http://localhost:5173/?renderer=webgpu
+  http://localhost:5173/?renderer=webgl2
+
+After real browser testing:
+  git status
+  git add src/assets src/core/Transform.js src/index.js scripts/static-server.mjs demo/main.js assets/models tests/gltf.test.js docs/V0.2.0-PR05-GLTF-ASSETS.md README.md ROADMAP.md CHANGELOG.md package.json APPLY-PR05.txt
+  git commit -m "feat: import static glTF 2.0 and GLB assets"
+  git push -u origin feat/v0.2.0-gltf-import
+
+Open GitHub Pull Request: base=development, compare=feat/v0.2.0-gltf-import.
+Do not tag v0.2.0 yet; hardware validation and remaining roadmap tasks are pending.

@@ -30,7 +30,7 @@ The browser demo runs an original 3D scene through **our own rendering code**, w
 
 ### Not yet implemented
 
-PBR materials, textures and glTF loading, shadows, animation mixer, audio, general rigid-body physics, scripting, scene editor, authoring tools, multiplayer or production benchmarks. See [ROADMAP.md](ROADMAP.md).
+The published v0.1.0 tag does not include PBR materials, textures or glTF loading. Shadows, animation mixer, audio, general rigid-body physics, scripting, scene editor, authoring tools, multiplayer and production benchmarks remain future work. See [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
@@ -84,6 +84,7 @@ src/
   graphics/   Mesh, WebGPURenderer, WebGLRenderer, shaders
   math/       Mat4, Vec3
   geometry/   Geometric primitives
+  assets/     Static glTF 2.0 and GLB import
   input/      OrbitControls
 demo/         Interactive renderer demonstration
 scripts/      Dependency-free dev server and checks
@@ -101,7 +102,7 @@ This is **a general-purpose open-source engine only**. Proprietary games built w
 
 The `development` branch adds flexible indexed geometry, nested scene transforms, texture loading and material samplers, and a **first-pass metallic-roughness PBR preview** (PR 04). This is in-progress pre-alpha work; the published `v0.1.0-alpha.1` tag remains unchanged.
 
-PR 04 introduces `PBRMaterial` and scene-level `Lighting` and renders a live material gallery on WebGPU and WebGL 2. It uses a GGX direct-light BRDF, optional base-color and packed metallic-roughness textures, linear-light shading, tone mapping, and exposure control. It **does not** yet support image-based reflections, shadows, transparent objects, normal maps, or glTF loading. Legacy plain-color and `Material` objects retain their previous shading path.
+PR 04 introduces `PBRMaterial` and scene-level `Lighting` and renders a live material gallery on WebGPU and WebGL 2. It uses a GGX direct-light BRDF, optional base-color and packed metallic-roughness textures, linear-light shading, tone mapping, and exposure control. It **does not** yet support image-based reflections, shadows, transparent objects, or normal maps. PR 05 adds a limited static glTF/GLB importer. Legacy plain-color and `Material` objects retain their previous shading path.
 
 See [PR 04 development notes](docs/V0.2.0-PR04-PBR.md) for example imports, supported material properties, limitations, and hardware testing steps.
 
@@ -117,7 +118,7 @@ The `development` branch is where new, unreleased features are prepared. PR 02 a
 
 The original `createBox()` typed-array geometry remains supported. This branch is not a
 new release: `package.json` retains the existing published version until tagging.
-PBR shading, glTF loading, and advanced shadows are **not** included yet; PR 03 adds basic color textures, not PBR.
+The current development branch includes PR 04 PBR and PR 05 static glTF/GLB importing. Advanced shadows and full glTF compliance are not implemented yet.
 
 See [PR 02 implementation notes](docs/V0.2.0-PR02-RENDERING-GEOMETRY.md) and [PR 03 textures and materials](docs/V0.2.0-PR03-TEXTURES-MATERIALS.md).
 
@@ -148,3 +149,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [SEC
 Copyright © 2026 Starfire Engine contributors.
 
 Source code is licensed under [Apache License, Version 2.0](LICENSE). Project names/logos are handled separately; see [TRADEMARKS.md](TRADEMARKS.md).
+
+## PR 05 — Import Blender-style 3D models (development branch)
+
+Static glTF 2.0 / GLB files containing standard triangular meshes, scene hierarchy, and metallic-roughness materials can now be loaded by `GLTFLoader`. The default demo imports the original public `assets/models/starfire-relay.glb` model. JSON glTF with external `.bin` resources is also supported.
+
+```js
+import { GLTFLoader } from './src/index.js';
+const imported = await new GLTFLoader().load('/assets/models/starfire-relay.glb');
+engine.scene = imported.scene;
+```
+
+This is a deliberately limited **static** importer: animations, skins, sparse accessors, double-sided/transparent surfaces, normal maps and compressed extensions are not supported. Unsupported features fail with explanatory errors. See [PR 05 documentation](docs/V0.2.0-PR05-GLTF-ASSETS.md).

@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/index.js",
     "./math": "./src/math/index.js",
+    "./assets": "./src/assets/index.js",
     "./geometry": "./src/geometry/primitives.js"
   },
   "scripts": {

@@ -20,6 +20,7 @@ const MIME = new Map([
   ['.ico', 'image/x-icon'],
   ['.bin', 'application/octet-stream'],
   ['.glb', 'model/gltf-binary'],
+  ['.gltf', 'model/gltf+json'],
   ['.ktx2', 'image/ktx2']
 ]);
 const PUBLIC_FOLDERS = new Set(['src', 'demo', 'assets']);
