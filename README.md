@@ -97,6 +97,22 @@ Starfire Engine intentionally implements both low-level backends against browser
 
 This is **a general-purpose open-source engine only**. Proprietary games built with it—including commercial projects—live in **separate private repositories**. No private application source, assets, gameplay logic, or development tools are included here.
 
+## Development branch (v0.2.0 work in progress)
+
+The `development` branch is where new, unreleased features are prepared. PR 02 adds:
+
+- An attribute-based `Geometry` API with positions, normals, UVs, and preserved custom attributes.
+- 16-bit and 32-bit triangle indices, plus new plane/sphere primitives.
+- Parent/child entities, visibility inheritance, and quaternion-compatible transforms.
+- Shared geometry resource caching with automatic disposal when geometry stops being visible.
+- A shared render submission step for WebGPU and WebGL 2.
+
+The original `createBox()` typed-array geometry remains supported. This branch is not a
+new release: `package.json` retains the existing published version until tagging.
+PBR shading, glTF loading, textures and advanced shadows are **not** included in PR 02.
+
+See [PR 02 implementation notes](docs/V0.2.0-PR02-RENDERING-GEOMETRY.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [SECURITY.md](SECURITY.md). Contributors are asked to sign off their commits under the DCO.

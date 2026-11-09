@@ -1,3 +1,12 @@
+## Unreleased — v0.2.0 development / PR 02
+
+- Introduce attribute-based geometry supporting positions, normals, UVs and extra named attributes.
+- Add support for Uint32 indices in both WebGPU and WebGL 2 renderers.
+- Add parent/child scene hierarchy and quaternion transforms.
+- Share render collection and release unreferenced GPU geometry allocations automatically.
+- Add UV sphere and plane geometry, test coverage and a hierarchy demo.
+- Retain compatibility with the v0.1.x interleaved geometry representation.
+
 # Changelog
 
 ## [0.1.0-alpha.1] - 2026-11-08

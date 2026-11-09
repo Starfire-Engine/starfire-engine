@@ -1,4 +1,7 @@
 import { fragmentGLSL, vertexGLSL } from './shaders.js';
+import { prepareGeometry } from '../geometry/Geometry.js';
+import { GeometryResourceCache } from './GeometryResourceCache.js';
+import { collectRenderables } from './RenderQueue.js';
 
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
@@ -37,7 +40,11 @@ export class WebGLRenderer {
     this.name = 'WebGL 2';
     this.drawCalls = 0;
     this.triangles = 0;
-    this.cache = new Map();
+    this.cache = new GeometryResourceCache((resource) => {
+      this.gl.deleteVertexArray(resource.vao);
+      this.gl.deleteBuffer(resource.vertexBuffer);
+      this.gl.deleteBuffer(resource.indexBuffer);
+    });
   }
   async initialize() {
     const gl = this.canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true });
@@ -68,24 +75,39 @@ export class WebGLRenderer {
     gl.viewport(0, 0, w, h);
   }
   getGeometry(geometry) {
-    if (this.cache.has(geometry)) return this.cache.get(geometry);
-    const gl = this.gl;
-    const vao = gl.createVertexArray();
-    const vertexBuffer = gl.createBuffer();
-    const indexBuffer = gl.createBuffer();
-    gl.bindVertexArray(vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, geometry.vertices, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geometry.indices, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
-    gl.bindVertexArray(null);
-    const gpuMesh = { vao, vertexBuffer, indexBuffer, count: geometry.indices.length };
-    this.cache.set(geometry, gpuMesh);
-    return gpuMesh;
+    return this.cache.get(geometry, () => {
+      const { vertices, indices } = prepareGeometry(geometry);
+      const gl = this.gl;
+      const vao = gl.createVertexArray();
+      const vertexBuffer = gl.createBuffer();
+      const indexBuffer = gl.createBuffer();
+      if (!vao || !vertexBuffer || !indexBuffer) {
+        if (vao) gl.deleteVertexArray(vao);
+        if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
+        if (indexBuffer) gl.deleteBuffer(indexBuffer);
+        throw new Error('Unable to allocate WebGL geometry resources');
+      }
+      try {
+        gl.bindVertexArray(vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+        return { vao, vertexBuffer, indexBuffer, count: indices.length,
+          indexType: indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT };
+      } catch (error) {
+        gl.deleteVertexArray(vao);
+        gl.deleteBuffer(vertexBuffer);
+        gl.deleteBuffer(indexBuffer);
+        throw error;
+      } finally { gl.bindVertexArray(null); }
+    });
   }
   render(scene, camera) {
     this.resize();
@@ -96,14 +118,14 @@ export class WebGLRenderer {
     gl.uniform3fv(this.uniforms.eye, camera.position);
     this.drawCalls = 0;
     this.triangles = 0;
-    for (const entity of scene.query('mesh')) {
-      if (!entity.visible) continue;
-      const mesh = entity.get('mesh');
-      const gpuMesh = this.getGeometry(mesh.geometry);
-      gl.uniformMatrix4fv(this.uniforms.model, false, entity.transform.matrix());
-      gl.uniform4fv(this.uniforms.color, mesh.material.color);
+    const renderables = collectRenderables(scene);
+    this.cache.sweep(new Set(renderables.map((item) => item.geometry)));
+    for (const item of renderables) {
+      const gpuMesh = this.getGeometry(item.geometry);
+      gl.uniformMatrix4fv(this.uniforms.model, false, item.modelMatrix);
+      gl.uniform4fv(this.uniforms.color, item.mesh.material.color);
       gl.bindVertexArray(gpuMesh.vao);
-      gl.drawElements(gl.TRIANGLES, gpuMesh.count, gl.UNSIGNED_SHORT, 0);
+      gl.drawElements(gl.TRIANGLES, gpuMesh.count, gpuMesh.indexType, 0);
       this.drawCalls++;
       this.triangles += gpuMesh.count / 3;
     }
@@ -111,11 +133,6 @@ export class WebGLRenderer {
   }
   dispose() {
     const gl = this.gl;
-    for (const value of this.cache.values()) {
-      gl.deleteVertexArray(value.vao);
-      gl.deleteBuffer(value.vertexBuffer);
-      gl.deleteBuffer(value.indexBuffer);
-    }
     this.cache.clear();
     gl.deleteProgram(this.program);
   }

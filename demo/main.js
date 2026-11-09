@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -30,6 +30,13 @@ function createScene() {
   cube('Core pedestal', [0, -0.3, 0], [1.62, .3, 1.62], [0.23, 0.43, 0.72, 1]);
   const rotating = cube('Engine test object', [0, 1.52, 0], [1.5, 1.5, 1.5], [0.31, 0.73, 1, 1], [.25, .48, .16]);
   const inner = cube('Inner test geometry', [0, 1.52, 0], [.7, .7, .7], [0.74, 0.85, 1, 1], [.4, .1, .2]);
+  // PR 02: demonstrate hierarchical transforms + new indexed sphere geometry.
+  const orbitPivot = scene.add(new Entity('Orbit pivot'));
+  orbitPivot.transform.position = [0, 1.55, 0];
+  const satellite = new Entity('Hierarchy satellite').add('mesh',
+    new Mesh(createSphere(.42, 28, 16), { color: [0.96, 0.66, 0.25, 1] }));
+  satellite.transform.position = [2.6, .25, 0];
+  orbitPivot.addChild(satellite);
   const rings = [];
   for (let i = 0; i < 12; i++) {
     const angle = 2 * Math.PI * i / 12;
@@ -49,6 +56,7 @@ function createScene() {
     cube(`Beacon ${x}/${z}`, [x, .82, z], [.39, .13, .39], [.32, .78, 1, 1]);
   }
   scene.addSystem((_scene, dt, elapsed) => {
+    orbitPivot.transform.rotation[1] -= dt * .34;
     rotating.transform.rotation[1] += dt * .42;
     rotating.transform.rotation[0] += dt * .11;
     inner.transform.rotation[0] -= dt * .34;

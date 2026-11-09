@@ -1,6 +1,7 @@
 export const vertexGLSL = `#version 300 es
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUV;
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
 out vec3 vWorldPosition;
@@ -45,6 +46,7 @@ struct ObjectUniforms {
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
 };
 struct VertexOutput {
   @builtin(position) clipPosition: vec4<f32>,

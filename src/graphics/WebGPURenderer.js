@@ -1,4 +1,7 @@
 import { shaderWGSL } from './shaders.js';
+import { prepareGeometry } from '../geometry/Geometry.js';
+import { GeometryResourceCache } from './GeometryResourceCache.js';
+import { collectRenderables } from './RenderQueue.js';
 
 const MAX_OBJECTS = 2048;
 const OBJECT_STRIDE = 256; // WebGPU dynamic uniform offsets must respect 256-byte alignment.
@@ -8,7 +11,10 @@ export class WebGPURenderer {
     this.canvas = canvas;
     this.pixelRatioCap = pixelRatioCap;
     this.name = 'WebGPU';
-    this.cache = new Map();
+    this.cache = new GeometryResourceCache((resource) => {
+      resource.vertexBuffer.destroy();
+      resource.indexBuffer.destroy();
+    });
     this.drawCalls = 0;
     this.triangles = 0;
     this.lost = false;
@@ -39,9 +45,10 @@ export class WebGPURenderer {
       layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
       vertex: {
         module, entryPoint: 'vertexMain',
-        buffers: [{ arrayStride: 24, attributes: [
+        buffers: [{ arrayStride: 32, attributes: [
           { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32x3' }
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          { shaderLocation: 2, offset: 24, format: 'float32x2' }
         ] }]
       },
       fragment: { module, entryPoint: 'fragmentMain', targets: [{ format: this.format }] },
@@ -73,15 +80,21 @@ export class WebGPURenderer {
     });
   }
   getGeometry(geometry) {
-    if (this.cache.has(geometry)) return this.cache.get(geometry);
-    const device = this.device;
-    const vertexBuffer = device.createBuffer({ size: geometry.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    const indexBuffer = device.createBuffer({ size: geometry.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-    device.queue.writeBuffer(vertexBuffer, 0, geometry.vertices);
-    device.queue.writeBuffer(indexBuffer, 0, geometry.indices);
-    const value = { vertexBuffer, indexBuffer, count: geometry.indices.length };
-    this.cache.set(geometry, value);
-    return value;
+    return this.cache.get(geometry, () => {
+      const { vertices, indices } = prepareGeometry(geometry);
+      let vertexBuffer, indexBuffer;
+      try {
+        vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
+        this.device.queue.writeBuffer(indexBuffer, 0, indices);
+        return { vertexBuffer, indexBuffer, count: indices.length, indexFormat: indices instanceof Uint32Array ? 'uint32' : 'uint16' };
+      } catch (error) {
+        vertexBuffer?.destroy();
+        indexBuffer?.destroy();
+        throw error;
+      }
+    });
   }
   render(scene, camera) {
     if (this.lost) throw new Error('WebGPU device lost; reload to reinitialize the renderer');
@@ -92,12 +105,13 @@ export class WebGPURenderer {
     uniforms.set([0.65, 0.95, 0.42, 0], 16);
     uniforms.set([...camera.position, 1], 20);
     device.queue.writeBuffer(this.cameraBuffer, 0, uniforms);
-    const meshes = scene.query('mesh').filter((entity) => entity.visible);
+    const meshes = collectRenderables(scene);
+    this.cache.sweep(new Set(meshes.map((item) => item.geometry)));
     if (meshes.length > MAX_OBJECTS) throw new Error(`Exceeded renderer draw limit of ${MAX_OBJECTS} objects`);
     const objects = new Float32Array((OBJECT_STRIDE / 4) * meshes.length);
     meshes.forEach((entity, index) => {
-      const mesh = entity.get('mesh');
-      objects.set(entity.transform.matrix(), index * OBJECT_STRIDE / 4);
+      const mesh = entity.mesh;
+      objects.set(entity.modelMatrix, index * OBJECT_STRIDE / 4);
       objects.set(mesh.material.color, index * OBJECT_STRIDE / 4 + 16);
     });
     if (meshes.length) device.queue.writeBuffer(this.objectBuffer, 0, objects);
@@ -117,11 +131,10 @@ export class WebGPURenderer {
     this.drawCalls = 0;
     this.triangles = 0;
     meshes.forEach((entity, index) => {
-      const mesh = entity.get('mesh');
-      const buffer = this.getGeometry(mesh.geometry);
+      const buffer = this.getGeometry(entity.geometry);
       pass.setBindGroup(0, this.bindGroup, [index * OBJECT_STRIDE]);
       pass.setVertexBuffer(0, buffer.vertexBuffer);
-      pass.setIndexBuffer(buffer.indexBuffer, 'uint16');
+      pass.setIndexBuffer(buffer.indexBuffer, buffer.indexFormat);
       pass.drawIndexed(buffer.count);
       this.drawCalls++;
       this.triangles += buffer.count / 3;
@@ -130,10 +143,6 @@ export class WebGPURenderer {
     device.queue.submit([encoder.finish()]);
   }
   dispose() {
-    for (const geometry of this.cache.values()) {
-      geometry.vertexBuffer.destroy();
-      geometry.indexBuffer.destroy();
-    }
     this.cache.clear();
     this.depthTexture?.destroy();
     this.cameraBuffer?.destroy();
