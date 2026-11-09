@@ -162,7 +162,7 @@ test('WebGPU external image copy creates linear texture and binds sampler once p
       createTexture(options) {return { options, createView(){return {};},destroy(){} };},
       createSampler(options) {samplerOptions.push(options);return {};},
       createBindGroup(options) {groups.push(options);return {};},
-      queue: { copyExternalImageToTexture(...args) { copied.push(args); } }
+      queue: { copyExternalImageToTexture(...args) { copied.push(args); }, writeTexture() {} }
     };
     const tex = Texture2D.fromImage({width:32,height:16},{colorSpace:'linear'});
     const material = new Material({baseColorTexture:tex,sampler:new TextureSampler({wrapV:'mirror-repeat'})});
@@ -254,11 +254,11 @@ test('WebGPU renders textured and untextured meshes with separate bind groups', 
     scene.add(new Entity('plain').add('mesh',new Mesh(createPlane(),{color:[1,1,1,1]})));
     r.render(scene,camera);
     assert.deepEqual(bound.map(b=>b.index),[0,1,0,1]);
-    assert.equal(uploaded.length, 2); // textured + 1-pixel white fallback
-    assert.equal(r.textureCache.size, 2);
+    assert.equal(uploaded.length, 3); // textured + white fallback + linear MR fallback
+    assert.equal(r.textureCache.size, 3);
     scene.remove(scene.find('textured'));
     r.render(scene,camera);
-    assert.equal(r.textureCache.size, 1);
+    assert.equal(r.textureCache.size, 2);
     assert.equal(deleted.length, 1);
   } finally {
     if (oldWindow === undefined) delete globalThis.window; else globalThis.window=oldWindow;

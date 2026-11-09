@@ -5,6 +5,8 @@ import { collectRenderables } from './RenderQueue.js';
 import { Texture2D } from './Texture2D.js';
 import { TextureSampler } from './TextureSampler.js';
 import { TextureResourceCache } from './TextureResourceCache.js';
+import { resolveLighting } from './Lighting.js';
+import { resolveMaterial } from './PBRMaterial.js';
 
 const MAX_OBJECTS = 2048;
 const OBJECT_STRIDE = 256; // WebGPU dynamic uniform offsets must respect 256-byte alignment.
@@ -21,6 +23,8 @@ export class WebGPURenderer {
     this.textureCache = new TextureResourceCache((resource) => resource.texture.destroy());
     this.samplerCache = new Map();
     this.fallbackTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]));
+    // R=unused, G=roughness multiplier, B=metallic multiplier; linear 1x1.
+    this.fallbackMRTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]), { colorSpace: 'linear' });
     this.drawCalls = 0;
     this.triangles = 0;
     this.lost = false;
@@ -33,19 +37,21 @@ export class WebGPURenderer {
     this.device = device;
     this.format = navigator.gpu.getPreferredCanvasFormat();
     device.lost.then(() => { this.lost = true; });
-    this.cameraBuffer = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.cameraBuffer = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.objectBuffer = device.createBuffer({ size: MAX_OBJECTS * OBJECT_STRIDE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const bindGroupLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 80 } }
+      { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 112 } }
     ] });
     this.bindGroup = device.createBindGroup({ layout: bindGroupLayout, entries: [
       { binding: 0, resource: { buffer: this.cameraBuffer } },
-      { binding: 1, resource: { buffer: this.objectBuffer, offset: 0, size: 80 } }
+      { binding: 1, resource: { buffer: this.objectBuffer, offset: 0, size: 112 } }
     ] });
     this.textureBindGroupLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } }
     ] });
     const module = device.createShaderModule({ code: shaderWGSL });
     const info = await module.getCompilationInfo();
@@ -135,7 +141,9 @@ export class WebGPURenderer {
           device.queue.copyExternalImageToTexture({ source: texture.image, flipY: false },
             { texture: gpuTexture }, [texture.width, texture.height]);
         }
-        return { texture: gpuTexture, view: gpuTexture.createView(), bindGroups: new Map() };
+        // WeakMap keys are the second texture resource: binding sets don't
+        // retain dead metallic-roughness uploads after version changes.
+        return { texture: gpuTexture, view: gpuTexture.createView(), bindGroups: new WeakMap() };
       } catch (error) { gpuTexture.destroy(); throw error; }
     });
   }
@@ -153,34 +161,49 @@ export class WebGPURenderer {
   getMaterialBindGroup(material) {
     // Browser initialize() establishes the texture layout; older tests stub only geometry.
     if (!this.textureBindGroupLayout) return null;
-    const texture = material.baseColorTexture ?? this.fallbackTexture;
+    const baseTexture = material.baseColorTexture ?? this.fallbackTexture;
+    const pbr = resolveMaterial(material);
+    const mrTexture = pbr.metallicRoughnessTexture ?? this.fallbackMRTexture;
     const sampler = material.sampler ?? TextureSampler.DEFAULT;
-    const resource = this.getTexture(texture);
-    if (!resource.bindGroups.has(sampler.key)) {
-      resource.bindGroups.set(sampler.key, this.device.createBindGroup({
+    const baseResource = this.getTexture(baseTexture);
+    const mrResource = this.getTexture(mrTexture);
+    let groups = baseResource.bindGroups.get(mrResource);
+    if (!groups) {
+      groups = new Map();
+      baseResource.bindGroups.set(mrResource, groups);
+    }
+    if (!groups.has(sampler.key)) {
+      groups.set(sampler.key, this.device.createBindGroup({
         layout: this.textureBindGroupLayout,
         entries: [
-          { binding: 0, resource: resource.view },
-          { binding: 1, resource: this.getSampler(sampler) }
+          { binding: 0, resource: baseResource.view },
+          { binding: 1, resource: this.getSampler(sampler) },
+          { binding: 2, resource: mrResource.view },
+          { binding: 3, resource: this.getSampler(sampler) }
         ]
       }));
     }
-    return resource.bindGroups.get(sampler.key);
+    return groups.get(sampler.key);
   }
   render(scene, camera) {
     if (this.lost) throw new Error('WebGPU device lost; reload to reinitialize the renderer');
     this.resize();
     const device = this.device;
-    const uniforms = new Float32Array(24);
+    const lighting = resolveLighting(scene);
+    const uniforms = new Float32Array(36);
     uniforms.set(camera.matrix(this.canvas.width / this.canvas.height, 'webgpu'), 0);
-    uniforms.set([0.65, 0.95, 0.42, 0], 16);
+    uniforms.set([...lighting.direction, 0], 16);
     uniforms.set([...camera.position, 1], 20);
+    uniforms.set([...lighting.color, lighting.intensity], 24);
+    uniforms.set([...lighting.ambientColor, lighting.ambientIntensity], 28);
+    uniforms.set([lighting.exposure, 0, 0, 0], 32);
     device.queue.writeBuffer(this.cameraBuffer, 0, uniforms);
     const meshes = collectRenderables(scene);
     this.cache.sweep(new Set(meshes.map((item) => item.geometry)));
     this.textureCache.sweep(new Set([
-      this.fallbackTexture,
-      ...meshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean)
+      this.fallbackTexture, this.fallbackMRTexture,
+      ...meshes.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
+      ...meshes.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
     ]));
     if (meshes.length > MAX_OBJECTS) throw new Error(`Exceeded renderer draw limit of ${MAX_OBJECTS} objects`);
     const objects = new Float32Array((OBJECT_STRIDE / 4) * meshes.length);
@@ -188,6 +211,9 @@ export class WebGPURenderer {
       const mesh = entity.mesh;
       objects.set(entity.modelMatrix, index * OBJECT_STRIDE / 4);
       objects.set(mesh.material.color, index * OBJECT_STRIDE / 4 + 16);
+      const pbr = resolveMaterial(mesh.material);
+      objects.set([pbr.metallic, pbr.roughness, Number(pbr.isPBR), 0], index * OBJECT_STRIDE / 4 + 20);
+      objects.set([...pbr.emissive, 0], index * OBJECT_STRIDE / 4 + 24);
     });
     if (meshes.length) device.queue.writeBuffer(this.objectBuffer, 0, objects);
     const encoder = device.createCommandEncoder();

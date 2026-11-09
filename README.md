@@ -99,6 +99,13 @@ This is **a general-purpose open-source engine only**. Proprietary games built w
 
 ## Development branch (v0.2.0 work in progress)
 
+The `development` branch adds flexible indexed geometry, nested scene transforms, texture loading and material samplers, and a **first-pass metallic-roughness PBR preview** (PR 04). This is in-progress pre-alpha work; the published `v0.1.0-alpha.1` tag remains unchanged.
+
+PR 04 introduces `PBRMaterial` and scene-level `Lighting` and renders a live material gallery on WebGPU and WebGL 2. It uses a GGX direct-light BRDF, optional base-color and packed metallic-roughness textures, linear-light shading, tone mapping, and exposure control. It **does not** yet support image-based reflections, shadows, transparent objects, normal maps, or glTF loading. Legacy plain-color and `Material` objects retain their previous shading path.
+
+See [PR 04 development notes](docs/V0.2.0-PR04-PBR.md) for example imports, supported material properties, limitations, and hardware testing steps.
+
+
 The `development` branch is where new, unreleased features are prepared. PR 02 adds:
 
 - An attribute-based `Geometry` API with positions, normals, UVs, and preserved custom attributes.

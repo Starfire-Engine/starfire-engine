@@ -5,6 +5,8 @@ import { collectRenderables } from './RenderQueue.js';
 import { Texture2D } from './Texture2D.js';
 import { TextureSampler } from './TextureSampler.js';
 import { TextureResourceCache } from './TextureResourceCache.js';
+import { resolveLighting } from './Lighting.js';
+import { resolveMaterial } from './PBRMaterial.js';
 
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
@@ -44,6 +46,7 @@ export class WebGLRenderer {
     this.textureCache = new TextureResourceCache((resource) => this.gl.deleteTexture(resource));
     this.samplerCache = new Map();
     this.fallbackTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]));
+    this.fallbackMRTexture = Texture2D.fromRGBA(1, 1, new Uint8Array([255, 255, 255, 255]), { colorSpace: 'linear' });
     this.drawCalls = 0;
     this.triangles = 0;
     this.cache = new GeometryResourceCache((resource) => {
@@ -62,11 +65,20 @@ export class WebGLRenderer {
       model: gl.getUniformLocation(this.program, 'uModel'),
       color: gl.getUniformLocation(this.program, 'uColor'),
       eye: gl.getUniformLocation(this.program, 'uEye'),
-      baseColorTexture: gl.getUniformLocation(this.program, 'uBaseColorTexture')
+      baseColorTexture: gl.getUniformLocation(this.program, 'uBaseColorTexture'),
+      metallicRoughnessTexture: gl.getUniformLocation(this.program, 'uMetallicRoughnessTexture'),
+      pbrParams: gl.getUniformLocation(this.program, 'uPBRParams'),
+      emissive: gl.getUniformLocation(this.program, 'uEmissive'),
+      lightDirection: gl.getUniformLocation(this.program, 'uLightDirection'),
+      keyLight: gl.getUniformLocation(this.program, 'uKeyLight'),
+      ambientLight: gl.getUniformLocation(this.program, 'uAmbientLight'),
+      exposure: gl.getUniformLocation(this.program, 'uExposure')
     };
     gl.useProgram(this.program);
     gl.uniform1i(this.uniforms.baseColorTexture, 0);
+    gl.uniform1i(this.uniforms.metallicRoughnessTexture, 1);
     this.texturingReady = true;
+    this.pbrReady = true;
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
@@ -166,23 +178,41 @@ export class WebGLRenderer {
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.uniforms.viewProjection, false, camera.matrix(this.canvas.width / this.canvas.height, 'webgl'));
     gl.uniform3fv(this.uniforms.eye, camera.position);
+    if (this.pbrReady) {
+      const lighting = resolveLighting(scene);
+      gl.uniform3fv(this.uniforms.lightDirection, lighting.direction);
+      gl.uniform4fv(this.uniforms.keyLight, [...lighting.color, lighting.intensity]);
+      gl.uniform4fv(this.uniforms.ambientLight, [...lighting.ambientColor, lighting.ambientIntensity]);
+      gl.uniform1f(this.uniforms.exposure, lighting.exposure);
+    }
     this.drawCalls = 0;
     this.triangles = 0;
     const renderables = collectRenderables(scene);
     this.cache.sweep(new Set(renderables.map((item) => item.geometry)));
     this.textureCache.sweep(new Set([
-      this.fallbackTexture,
-      ...renderables.map((item) => item.mesh.material.baseColorTexture).filter(Boolean)
+      this.fallbackTexture, this.fallbackMRTexture,
+      ...renderables.map((item) => item.mesh.material.baseColorTexture).filter(Boolean),
+      ...renderables.map((item) => resolveMaterial(item.mesh.material).metallicRoughnessTexture).filter(Boolean)
     ]));
     for (const item of renderables) {
       const gpuMesh = this.getGeometry(item.geometry);
       gl.uniformMatrix4fv(this.uniforms.model, false, item.modelMatrix);
       gl.uniform4fv(this.uniforms.color, item.mesh.material.color);
+      const pbr = resolveMaterial(item.mesh.material);
+      if (this.pbrReady) {
+        gl.uniform4fv(this.uniforms.pbrParams, [pbr.metallic, pbr.roughness, Number(pbr.isPBR), 0]);
+        gl.uniform3fv(this.uniforms.emissive, pbr.emissive);
+      }
       if (this.texturingReady) {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D,
           this.getTexture(item.mesh.material.baseColorTexture ?? this.fallbackTexture));
         gl.bindSampler(0, this.getSampler(item.mesh.material.sampler ?? TextureSampler.DEFAULT));
+        if (this.pbrReady) {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, this.getTexture(pbr.metallicRoughnessTexture ?? this.fallbackMRTexture));
+          gl.bindSampler(1, this.getSampler(item.mesh.material.sampler ?? TextureSampler.DEFAULT));
+        }
       }
       gl.bindVertexArray(gpuMesh.vao);
       gl.drawElements(gl.TRIANGLES, gpuMesh.count, gpuMesh.indexType, 0);
@@ -192,6 +222,12 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
     if (this.texturingReady) {
       gl.bindSampler(0, null);
+      if (this.pbrReady) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindSampler(1, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        gl.activeTexture(gl.TEXTURE0);
+      }
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
   }

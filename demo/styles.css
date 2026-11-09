@@ -99,3 +99,9 @@ p { margin: 0; max-width: 385px; font-size: 14px; line-height: 1.85; color: #96a
   .footer { font-size: 7px; }
   .footer span:last-child { display: none; }
 }
+
+/* PR 04 controls: adjust only PBR material exposure (legacy path remains stable). */
+.exposure-control { min-width: 188px; background: rgba(7,17,33,.76); border:1px solid rgba(113,159,221,.28); color:#87a6ca; padding:12px 14px; font-size:9px; letter-spacing:.09em; display:flex; gap:8px; align-items:center; pointer-events:auto; backdrop-filter:blur(10px); }
+.exposure-control input { width:86px; min-width:30px; accent-color:#65bfff; }
+.exposure-control output { min-width:22px; text-align:right; font-variant-numeric:tabular-nums; color:#eef5ff; }
+@media (max-width:640px) { .exposure-control { grid-column:1 / -1; padding:10px; min-width:0; } .exposure-control input { flex:1; } }

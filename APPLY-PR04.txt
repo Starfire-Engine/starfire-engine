@@ -1,0 +1,39 @@
+STARFIRE ENGINE 0.2.0 / PR 04 — METALLIC-ROUGHNESS PBR
+
+Base branch: development
+Expected baseline commit: c28f7809e663eed96f45b3118726183018310d3e (PR 03)
+
+Apply on your Windows PC after extracting this ZIP to Downloads:
+
+  cd "$HOME\Documents\starfire-engine"   # adjust path if your clone is elsewhere
+  git switch development
+  git pull --ff-only origin development
+  git switch -c feat/v0.2.0-pbr
+  Expand-Archive "$HOME\Downloads\starfire-engine-v0.2.0-pr04-pbr-patch.zip" "$HOME\Downloads\starfire-pr04" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr04\*" "." -Recurse -Force
+  npm run ci
+  npm run dev
+
+Test with your RX 6600:
+  http://localhost:5173/?renderer=webgpu
+  http://localhost:5173/?renderer=webgl2
+
+See a material gallery of 5 PBR objects at the rear of the 3D scene.
+Adjust the PBR Exposure slider in the scene controls.
+Confirm both paths work and the console shows no shader errors.
+
+Then review and push the PR branch:
+  git diff --check
+  git status
+  git add src demo assets tests docs index.html README.md ROADMAP.md CHANGELOG.md
+  git commit -m "feat: add PR 04 metallic-roughness PBR rendering"
+  git push -u origin feat/v0.2.0-pbr
+
+Open a pull request targeting development, not main.
+
+WARNINGS:
+- Pre-alpha PBR preview: directional light and approximate constant ambient.
+- No image-based reflections, shadows, normal maps, transparent surfaces, or GLB import.
+- 57 local Node automated tests passed; these are not GPU/browser shader compilation tests.
+- Do NOT update or move the published v0.1.0-alpha.1 release tag.
+- No proprietary applications/assets included.

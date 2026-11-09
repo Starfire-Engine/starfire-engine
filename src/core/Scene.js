@@ -1,3 +1,4 @@
+import { Lighting } from '../graphics/Lighting.js';
 import { Entity } from './Entity.js';
 
 export class Scene {
@@ -5,6 +6,7 @@ export class Scene {
     this.name = name;
     this.entities = new Map();
     this.systems = [];
+    this.lighting = new Lighting();
   }
   _subtree(entity) {
     const entries = [];

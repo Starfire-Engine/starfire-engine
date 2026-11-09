@@ -1,4 +1,10 @@
-## Unreleased — v0.2.0 development / PR 02–03
+## Unreleased — v0.2.0 development / PR 02–04
+
+- PR 04: Add a first-pass metallic-roughness Cook–Torrance GGX PBR material and paired WGSL/GLSL shaders.
+- PR 04: Introduce scene-level `Lighting` with directional color/intensity, ambient approximation, and exposure.
+- PR 04: Support sRGB base-color and linear metallic-roughness textures (roughness G, metallic B), emissive color, ACES-fitted tonemapping, and a material gallery.
+- PR 04: Keep legacy materials on their original lighting path; IBL, shadows, normal maps, and transparent materials remain planned.
+
 
 - Introduce attribute-based geometry supporting positions, normals, UVs and extra named attributes.
 - Add support for Uint32 indices in both WebGPU and WebGL 2 renderers.
