@@ -2,6 +2,7 @@ import { WebGLRenderer } from '../graphics/WebGLRenderer.js';
 import { WebGPURenderer } from '../graphics/WebGPURenderer.js';
 import { PerspectiveCamera } from './Camera.js';
 import { Scene } from './Scene.js';
+import { FrameProfiler } from './FrameProfiler.js';
 
 /** Cross-backend engine lifecycle; game-specific systems belong outside the engine. */
 export class Engine {
@@ -17,6 +18,7 @@ export class Engine {
     this.onError = null;
     this.frame = 0;
     this.fps = 0;
+    this.profiler = new FrameProfiler();
     this._sampleStart = 0;
     this._sampleFrames = 0;
   }
@@ -27,11 +29,14 @@ export class Engine {
     const options = { renderer, pixelRatioCap };
     const errors = [];
     if (options.renderer !== 'webgl2') {
+      const gpuRenderer = new WebGPURenderer(canvas, pixelRatioCap);
       try {
-        const gpuRenderer = new WebGPURenderer(canvas, pixelRatioCap);
         await gpuRenderer.initialize();
         return new Engine(canvas, gpuRenderer);
       } catch (error) {
+        // Initialization can allocate GPU buffers before shaders are validated.
+        // Release partial resources before attempting WebGL 2 fallback.
+        try { gpuRenderer.dispose(); } catch { /* Keep the original startup error. */ }
         errors.push(error);
         if (options.renderer === 'webgpu') throw error;
       }
@@ -41,6 +46,8 @@ export class Engine {
       await glRenderer.initialize();
       return new Engine(canvas, glRenderer);
     } catch (error) {
+      // Partial WebGL initialization can also allocate programs and textures.
+      try { glRenderer.dispose(); } catch { /* Keep the primary initialization error. */ }
       errors.push(error);
       throw new Error(`No supported renderer could initialize: ${errors.map((e) => e.message).join(' / ')}`);
     }
@@ -51,16 +58,22 @@ export class Engine {
     this._lastTime = performance.now();
     this._sampleStart = this._lastTime;
     this._sampleFrames = 0;
+    this.profiler.reset();
     const step = (now) => {
       if (!this.running) return;
       const dt = Math.min((now - this._lastTime) / 1000, 0.05);
       this._lastTime = now;
       try {
+        const updateStart = performance.now();
         if (!this.paused) {
           this.elapsed += dt;
           this.scene.update(dt, this.elapsed);
         }
+        const renderStart = performance.now();
         this.renderer.render(this.scene, this.camera);
+        const workEnd = performance.now();
+        this.profiler.record({ frameMs: workEnd - updateStart,
+          updateMs: renderStart - updateStart, renderMs: workEnd - renderStart });
         this.frame++;
         this._sampleFrames++;
         if (now - this._sampleStart >= 400) {
@@ -72,7 +85,14 @@ export class Engine {
             renderer: this.renderer.name,
             entities: this.scene.entities.size,
             drawCalls: this.renderer.drawCalls,
-            triangles: this.renderer.triangles
+            triangles: this.renderer.triangles,
+            shadowDrawCalls: this.renderer.shadowDrawCalls ?? 0,
+            culledMeshes: this.renderer.culledMeshes ?? 0,
+            shadowCulled: this.renderer.shadowCulled ?? 0,
+            visibleMeshes: this.renderer.visibleMeshes ?? 0,
+            instancesRendered: this.renderer.instancesRendered ?? 0,
+            ...this.profiler.snapshot(),
+            resources: this.renderer.getDiagnostics?.() ?? null
           });
         }
       } catch (error) {

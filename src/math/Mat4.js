@@ -34,6 +34,28 @@ export const Mat4 = {
     }
     return out;
   },
+  /** Orthographic projection with backend-specific clip depth range. */
+  orthographic(left, right, bottom, top, near, far, depthMode = 'webgpu') {
+    if (![left, right, bottom, top, near, far].every(Number.isFinite) ||
+        !(right > left && top > bottom && near > 0 && far > near)) {
+      throw new RangeError('Invalid orthographic dimensions');
+    }
+    const out = Mat4.identity();
+    out[0] = 2 / (right - left);
+    out[5] = 2 / (top - bottom);
+    out[12] = -(right + left) / (right - left);
+    out[13] = -(top + bottom) / (top - bottom);
+    if (depthMode === 'webgpu') {
+      out[10] = 1 / (near - far);
+      out[14] = near / (near - far);
+    } else if (depthMode === 'webgl') {
+      out[10] = 2 / (near - far);
+      out[14] = (far + near) / (near - far);
+    } else {
+      throw new TypeError(`Unknown depth convention: ${depthMode}`);
+    }
+    return out;
+  },
   lookAt(eye, target, up = [0, 1, 0]) {
     const unit = (v) => {
       const n = Math.hypot(...v);
@@ -63,6 +85,21 @@ export const Mat4 = {
       cz * cy * scale[0], sz * cy * scale[0], -sy * scale[0], 0,
       (cz * sy * sx - sz * cx) * scale[1], (sz * sy * sx + cz * cx) * scale[1], cy * sx * scale[1], 0,
       (cz * sy * cx + sz * sx) * scale[2], (sz * sy * cx - cz * sx) * scale[2], cy * cx * scale[2], 0,
+      position[0], position[1], position[2], 1
+    ]);
+  },
+  /** Quaternion composition for glTF-compatible scene hierarchy (xyzw). */
+  composeQuaternion(position = [0, 0, 0], quaternion = [0, 0, 0, 1], scale = [1, 1, 1]) {
+    if (quaternion.length !== 4 || !quaternion.every(Number.isFinite)) throw new TypeError('Quaternion must contain four finite components');
+    const length = Math.hypot(...quaternion);
+    if (!(length > 1e-10)) throw new RangeError('Quaternion cannot be zero');
+    const [x, y, z, w] = quaternion.map(v => v / length);
+    const xx = x*x, yy = y*y, zz = z*z;
+    const xy = x*y, xz = x*z, yz = y*z, xw = x*w, yw = y*w, zw = z*w;
+    return new Float32Array([
+      (1 - 2*(yy + zz))*scale[0], 2*(xy + zw)*scale[0], 2*(xz - yw)*scale[0], 0,
+      2*(xy - zw)*scale[1], (1 - 2*(xx + zz))*scale[1], 2*(yz + xw)*scale[1], 0,
+      2*(xz + yw)*scale[2], 2*(yz - xw)*scale[2], (1 - 2*(xx + yy))*scale[2], 0,
       position[0], position[1], position[2], 1
     ]);
   },

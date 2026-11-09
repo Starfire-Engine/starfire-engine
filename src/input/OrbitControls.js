@@ -6,6 +6,7 @@ export class OrbitControls {
     this.distance = distance;
     this.azimuth = azimuth;
     this.elevation = elevation;
+    this.home = { distance, azimuth, elevation };
     this.pointers = new Map();
     this.onPointerDown = (event) => {
       this.pointers.set(event.pointerId, [event.clientX, event.clientY]);
@@ -52,9 +53,9 @@ export class OrbitControls {
     ];
   }
   reset() {
-    this.distance = 15;
-    this.azimuth = 0.65;
-    this.elevation = 0.38;
+    this.distance = this.home.distance;
+    this.azimuth = this.home.azimuth;
+    this.elevation = this.home.elevation;
     this.update();
   }
   dispose() {

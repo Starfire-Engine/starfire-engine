@@ -1,0 +1,38 @@
+Starfire Engine v0.2.0 — PR 03 textures and materials
+
+Base: Starfire-Engine/starfire-engine development @ f5617a70e958e3cbbdd1a85509956edfc7cdb864
+This archive includes ONLY new/modified files, NOT a full replacement repository.
+
+Windows PowerShell (run from YOUR repository folder, wherever it is):
+
+  git switch development
+  git pull --ff-only origin development
+  git status
+
+Recommended: make a topic branch before copying:
+  git switch -c feat/v0.2.0-textures-materials
+
+Download the ZIP and extract it:
+  Expand-Archive "$HOME\Downloads\starfire-engine-v0.2.0-pr03-patch.zip" "$HOME\Downloads\starfire-pr03" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr03\*" "." -Recurse -Force
+
+Review/test:
+  git diff --stat
+  npm run ci
+  npm run dev
+
+GPU browser tests:
+  http://localhost:5173/?renderer=webgpu
+  http://localhost:5173/?renderer=webgl2
+
+When verified:
+  git add src demo assets tests docs README.md ROADMAP.md CHANGELOG.md
+  git commit -m "feat: add PR 03 texture and material framework"
+  git push -u origin feat/v0.2.0-textures-materials
+
+Then open a GitHub PR BASE=development, COMPARE=feat/v0.2.0-textures-materials.
+If you'd rather push directly to development, do so ONLY after your team review.
+Do not tag or alter v0.1.0-alpha.1 as part of this PR.
+
+IMPORTANT: The new demo depends on assets/textures/starfire-grid.png being copied.
+The container could not verify browser GPU rendering on an RX 6600; manual validation is still required.

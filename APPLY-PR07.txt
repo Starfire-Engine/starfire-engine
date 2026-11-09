@@ -1,0 +1,33 @@
+Starfire Engine v0.2.0 development — PR 07 patch
+Base: development commit 1d3c2529a18d15973d67d68ba06e6cfa6d92faf5
+
+This archive contains only PR 07 changes. It does not replace the whole repository.
+
+PowerShell from a clean local Starfire Engine checkout:
+  git switch development
+  git pull --ff-only origin development
+  git switch -c feat/v0.2.0-performance
+
+Extract this ZIP to Downloads/starfire-pr07 and overlay only the included paths:
+  Expand-Archive "$HOME\Downloads\starfire-engine-v0.2.0-pr07-performance-patch.zip" "$HOME\Downloads\starfire-pr07" -Force
+  Copy-Item "$HOME\Downloads\starfire-pr07\*" "." -Recurse -Force
+
+Validate:
+  npm run ci
+  npm run dev
+  http://localhost:5173/?renderer=webgpu
+  http://localhost:5173/?renderer=webgl2
+
+Look for: no startup errors, good frame rates, separate shadow/main culled counts,
+256 instances in one draw per pass, and clear CPU/memory diagnostic labels.
+The 60 FPS goal is an unverified target, NOT a claim that PR 07 reaches it.
+
+Review and submit:
+  git diff --check
+  git status
+  git add src demo index.html tests docs README.md ROADMAP.md CHANGELOG.md APPLY-PR07.txt
+  git commit -m "feat: add PR07 culling, instancing and performance diagnostics"
+  git push -u origin feat/v0.2.0-performance
+
+Then create a pull request targeting development. Do not alter main or retag the existing release.
+No proprietary RideOps code/assets belong in this patch.

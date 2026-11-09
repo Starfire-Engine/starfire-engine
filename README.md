@@ -2,107 +2,120 @@
 
 # ✳ Starfire Engine
 
-**An experimental, open-source 3D engine built for the web.**
+**An open-source 3D graphics and asset engine for modern web browsers.**
 
-[![CI](https://img.shields.io/badge/status-pre--alpha-4f9eff)](#project-status)
-[![License](https://img.shields.io/badge/license-Apache--2.0-65c7a5)](LICENSE)
-[![Zero runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-blue)](#requirements)
-
-**WebGPU · WebGL 2 fallback · JavaScript ES modules · WGSL · GLSL ES 3.00**
+**WebGPU · WebGL 2 · JavaScript ES modules · WGSL · GLSL ES 3.00 · Apache 2.0**
 
 </div>
 
-## Project status
+## Release status
 
-**`v0.1.0-alpha.1` — Experimental pre-alpha.** This is a small but functional first engine release, **not** a complete game engine, a stable SDK, or a production-ready renderer.
+**v0.2.0-rc.1 — release candidate.** Starfire Engine 0.2 adds a substantial rendering and asset foundation, but it is **not** a complete game engine or a stable production SDK. The RC requires cross-browser hardware validation before the final v0.2.0 release.
 
-The browser demo runs an original 3D scene through **our own rendering code**, without Three.js or Babylon.js. It attempts WebGPU first and falls back to WebGL 2 when WebGPU cannot initialize.
+For the latest code, see [GitHub](https://github.com/Starfire-Engine/starfire-engine); for features and the detailed release history, see [CHANGELOG.md](CHANGELOG.md). The last publicly published version remains v0.1.0-alpha.1 until a new GitHub release is created.
 
-### In this release
+### What v0.2 adds
 
-- Custom WebGPU renderer with WGSL shaders and GPU-buffered meshes.
-- Independent WebGL 2 fallback renderer with GLSL shaders.
-- Depth testing, indexed geometry, directional diffuse/specular lighting.
-- Scene, entity/component storage, transforms, perspective camera.
-- Orbit/pinch/scroll controls and an animated demonstration scene.
-- Live FPS, draw-call, triangle, and entity counters.
-- Basic math/scene unit tests, CI, and a zero-dependency local dev server.
+- **Original rendering backends:** custom WebGPU/WGSL and separate WebGL 2/GLSL paths, without Three.js or Babylon.js.
+- **Geometry and scene hierarchy:** flexible position/normal/UV attributes, 16- and 32-bit indices, child transforms, quaternions, visibility and UV sphere/plane primitives.
+- **Textures and materials:** PNG/JPEG loading, samplers, resource reuse, a first-pass metallic-roughness PBR shading model, exposure and tone mapping.
+- **Static 3D imports:** a validated subset of glTF 2.0 and binary GLB, including nested nodes, multiple primitives, embedded/external texture resources and compatible materials.
+- **Lighting and shadows:** one directional shadow map with 3×3 PCF filtering plus a procedural sky/horizon/ground ambient-reflection approximation.
+- **Performance foundations:** camera/shadow frustum culling, opt-in indexed GPU instancing, CPU profiling and approximate GPU resource diagnostics.
+- **Demonstrations and tests:** interactive renderer comparison, original Starfire Relay GLB model, material gallery and 256-instance stress scene.
 
-### Not yet implemented
+### Known limitations
 
-PBR materials, textures and glTF loading, shadows, animation mixer, audio, general rigid-body physics, scripting, scene editor, authoring tools, multiplayer or production benchmarks. See [ROADMAP.md](ROADMAP.md).
+- **Experimental:** WebGPU/GLSL correctness, compatibility, performance and device loss behavior require ongoing browser/driver testing; CI alone does not prove GPU compatibility.
+- This is a graphics-and-assets milestone; there is **no game editor, general physics engine, complete input action system, audio system or animation mixer yet**.
+- GLB/glTF importing handles a defined **static triangle-mesh subset**. Skins, skeletal animation, morph targets, sparse accessors, compression extensions, normal maps, transparent/double-sided materials and some glTF extensions are not supported.
+- Shadows use one fixed-volume directional shadow map, not cascaded shadows. Environment lighting is an approximation, not HDR image-based lighting or reflection probes.
+- GPU profiling reports **CPU update and submission time only**. Estimated GPU allocation sizes are not measured VRAM usage. Instancing must be opted into explicitly.
+- Pre-1.0 APIs may change; consult the [versioning policy](docs/VERSIONING-AND-1.0.md).
 
 ## Requirements
 
-- **Node.js 20 or newer** (Node 22 LTS recommended).
-- A current browser with **WebGPU or WebGL 2** and working graphics drivers.
-- A local development server (included); direct `file://` access is not supported by ES module loading.
+- Node.js 20 or newer for local tools (Node 22 recommended).
+- An up-to-date browser with WebGPU **or** WebGL 2 enabled, and a supported graphics driver.
+- A local HTTP server for browser ES modules and assets. Opening `index.html` as `file://` is unsupported.
 
-No `npm install` is required: this pre-alpha intentionally uses **zero third-party runtime or build dependencies**.
+The repository has **zero third-party runtime dependencies**. The local development server is **not designed for Internet-facing production hosting**.
 
-## Quick start
+## Run the interactive demo
 
 ```bash
 git clone https://github.com/Starfire-Engine/starfire-engine.git
 cd starfire-engine
+# Use development for the release candidate, once its changes are merged there:
+git switch development
 npm run dev
 ```
 
-Then open **http://localhost:5173**.
+Open `http://localhost:5173/` in a browser, or force a graphics backend:
 
-To run checks:
+- WebGPU: `http://localhost:5173/?renderer=webgpu`
+- WebGL 2: `http://localhost:5173/?renderer=webgl2`
 
-```bash
-npm run ci
-```
+The demo includes shadow/environment controls, an exposure slider, an instancing stress toggle, and a short performance snapshot. A successful visual test requires an actual browser and GPU.
 
-To force the WebGL 2 backend use `http://localhost:5173/?renderer=webgl2`.
+## Use the engine
 
-## Library usage
-
-The engine is importable through native browser ES modules. For example, from a page served alongside the repository:
+The source API is plain JavaScript ES modules. When served from the repository alongside `src/`:
 
 ```js
-import { Engine, Scene, Entity, Mesh, createBox } from './src/index.js';
+import { Engine, Scene, Entity, Mesh, PBRMaterial, createSphere } from './src/index.js';
 
 const engine = await Engine.create({ canvas: document.querySelector('canvas') });
-const scene = new Scene('My scene');
-const cube = new Entity('Cube');
-cube.add('mesh', new Mesh(createBox(), { color: [0.2, 0.7, 1, 1] }));
-scene.add(cube);
+const scene = new Scene('Sample');
+const sphere = new Entity('Sphere');
+sphere.add('mesh', new Mesh(createSphere(1), new PBRMaterial({
+  color: [0.8, 0.5, 0.2, 1], metallic: 0.75, roughness: 0.3
+})));
+scene.add(sphere);
 engine.scene = scene;
 engine.start();
 ```
 
-Use `engine.stop()` and `engine.dispose()` when the app no longer needs the renderer.
+Load a compatible GLB model with the same scene architecture:
 
-## Repository map
-
-```text
-src/
-  core/       Engine, Scene, Entity, Transform, Camera
-  graphics/   Mesh, WebGPURenderer, WebGLRenderer, shaders
-  math/       Mat4, Vec3
-  geometry/   Geometric primitives
-  input/      OrbitControls
-demo/         Interactive renderer demonstration
-scripts/      Dependency-free dev server and checks
-tests/        Node built-in test runner
-docs/         Architecture and release instructions
+```js
+import { GLTFLoader } from './src/index.js';
+const imported = await new GLTFLoader().load('/assets/models/starfire-relay.glb');
+engine.scene = imported.scene;
 ```
 
-## Why an original renderer?
+To combine an imported model with another scene, **remove each root from the imported scene first**, then add it to the destination scene. Each entity tree can belong to only one scene.
 
-Starfire Engine intentionally implements both low-level backends against browser graphics APIs. We use browser GPU APIs, not third-party 3D scene engines. The first architecture focuses on a transparent, testable renderer before moving to performance, asset systems and higher visual fidelity.
+The repository can be packed locally with `npm pack`; this is **not** a claim that `@starfire/engine` is published on npm. Package consumers need an ESM-capable build tool or browser import mapping and a compatible asset-serving setup.
 
-This is **a general-purpose open-source engine only**. Proprietary games built with it—including commercial projects—live in **separate private repositories**. No private application source, assets, gameplay logic, or development tools are included here.
+## Tests and release validation
 
-## Contributing
+```bash
+npm run ci
+npm run release:check
+```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [SECURITY.md](SECURITY.md). Contributors are asked to sign off their commits under the DCO.
+`release:check` runs syntax/unit tests plus package/export/asset checks. It does not substitute for real-device testing. See [the browser validation matrix](docs/V0.2.0-BROWSER-VALIDATION.md) and [release instructions](docs/RELEASE.md).
 
-## License
+## Source layout
 
-Copyright © 2026 Starfire Engine contributors.
+```text
+src/core/      Engine, Scene, Entity, Transform, Camera, profiler
+src/graphics/  WebGPU and WebGL2 renderers, PBR, shadows, resources, instancing
+src/geometry/  Geometry and primitives
+src/assets/    Static glTF/GLB importing
+src/input/     OrbitControls
+demo/          Public interactive demo
+assets/        Public sample textures and original GLB model
+tests/         Node.js unit and integration tests
+scripts/       Local dev server, source and release validation
+docs/          Architecture, development milestones, release policies
+```
 
-Source code is licensed under [Apache License, Version 2.0](LICENSE). Project names/logos are handled separately; see [TRADEMARKS.md](TRADEMARKS.md).
+## Roadmap, contributions and license
+
+Our [roadmap to 1.0.0](ROADMAP.md) treats each `0.x.0` as a substantial developer-capability release. The next major goal, v0.3.0, is a **playable game runtime**, not an editor or game that already exists in this version.
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md) and [SECURITY.md](SECURITY.md).
+
+Starfire Engine is licensed under [Apache 2.0](LICENSE). Names and logos have separate trademark treatment in [TRADEMARKS.md](TRADEMARKS.md). Only the **general-purpose engine** is open source; proprietary games built with it belong in **separate private repositories** and are not included here.

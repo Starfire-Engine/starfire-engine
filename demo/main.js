@@ -1,4 +1,4 @@
-import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox } from '../src/index.js';
+import { Engine, Scene, Entity, Mesh, PerspectiveCamera, OrbitControls, createBox, createSphere, createPlane, TextureManager, Material, PBRMaterial, Lighting, ShadowSettings, EnvironmentLighting, TextureSampler, GLTFLoader, InstancedMesh, Mat4 } from '../src/index.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('world');
@@ -12,9 +12,27 @@ $('backendSelect').addEventListener('change', (event) => {
   location.assign(url.toString());
 });
 
-function createScene() {
-  const scene = new Scene('Starfire Engine / Technical Preview');
+async function createScene() {
+  const scene = new Scene('Starfire Engine / Shadow & Environment Lighting Preview');
+  scene.lighting = new Lighting({ direction: [0.65,0.95,0.42], color:[1,0.96,0.88],
+    intensity: 3.8, ambientColor:[0.75,0.85,1], ambientIntensity:0.23, exposure:1,
+    shadows: new ShadowSettings({ enabled:true, mapSize:1024, radius:14, distance:40, near:0.5, far:100, bias:0.0025 }),
+    environment: new EnvironmentLighting({ skyColor:[0.20,0.33,0.66], horizonColor:[0.56,0.60,0.76],
+      groundColor:[0.05,0.07,0.12], intensity:0.8 }) });
   const box = createBox();
+  // PR 03: load an original, public test image once, then share it across meshes.
+  const textures = new TextureManager();
+  const gridTexture = await textures.load('/assets/textures/starfire-grid.png');
+  const mrTexture = await textures.load('/assets/textures/metallic-roughness-preview.png', { colorSpace:'linear' });
+  const repeatSampler = new TextureSampler({ wrapU: 'repeat', wrapV: 'repeat' });
+  const texturedBase = createPlane(2.80, 2.80);
+  const uv = texturedBase.getAttribute('uv').array;
+  for (let i = 0; i < uv.length; i++) uv[i] *= 2;
+  texturedBase.markDirty();
+  const tile = new Entity('Textured material preview').add('mesh', new Mesh(texturedBase,
+    new Material({ color: [1, 1, 1, 1], baseColorTexture: gridTexture, sampler: repeatSampler })));
+  tile.transform.position = [0, -0.47, 0];
+  scene.add(tile);
   const cube = (name, position, scale, color, rotation = [0, 0, 0]) => {
     const entity = new Entity(name).add('mesh', new Mesh(box, { color }));
     entity.transform.position = position;
@@ -30,6 +48,60 @@ function createScene() {
   cube('Core pedestal', [0, -0.3, 0], [1.62, .3, 1.62], [0.23, 0.43, 0.72, 1]);
   const rotating = cube('Engine test object', [0, 1.52, 0], [1.5, 1.5, 1.5], [0.31, 0.73, 1, 1], [.25, .48, .16]);
   const inner = cube('Inner test geometry', [0, 1.52, 0], [.7, .7, .7], [0.74, 0.85, 1, 1], [.4, .1, .2]);
+  // PR 02: demonstrate hierarchical transforms + new indexed sphere geometry.
+  const orbitPivot = scene.add(new Entity('Orbit pivot'));
+  orbitPivot.transform.position = [0, 1.55, 0];
+  const satellite = new Entity('Hierarchy satellite').add('mesh',
+    new Mesh(createSphere(.42, 28, 16),
+      new Material({ color: [1, 1, 1, 1], baseColorTexture: gridTexture, sampler: repeatSampler })));
+  satellite.transform.position = [2.6, .25, 0];
+  orbitPivot.addChild(satellite);
+  // PR 04: material gallery. First four spheres demonstrate increasing
+  // roughness; the fifth uses a packed linear G=roughness/B=metallic map.
+  const materialSamples = [
+    { name:'Dielectric', x:-4.3, metallic:0, roughness:0.3, color:[0.12,0.52,0.92,1] },
+    { name:'Polished metal', x:-2.15, metallic:1, roughness:0.12, color:[0.87,0.55,0.24,1] },
+    { name:'Brushed metal', x:0, metallic:1, roughness:0.42, color:[0.85,0.85,0.93,1] },
+    { name:'Rough metal', x:2.15, metallic:1, roughness:0.86, color:[0.58,0.72,0.92,1] },
+    { name:'Packed MR map', x:4.3, metallic:1, roughness:1, color:[0.93,0.63,0.32,1], metallicRoughnessTexture:mrTexture }
+  ];
+  for (const material of materialSamples) {
+    const ball = new Entity(`PBR / ${material.name}`)
+      .add('mesh', new Mesh(createSphere(.60, 36, 24), new PBRMaterial(material)));
+    ball.transform.position=[material.x, .26, -4.0];
+    scene.add(ball);
+    const plinth = new Entity(`PBR plinth / ${material.name}`).add('mesh',
+      new Mesh(createBox(), {color:[0.06,0.14,0.23,1]}));
+    plinth.transform.position=[material.x, -.45, -4.0];
+    plinth.transform.scale=[1.35,.18,1.35];
+    scene.add(plinth);
+  }
+  // PR 05: import a real, original binary glTF 2.0 asset with nested nodes,
+  // metallic-roughness materials and images embedded inside the GLB file.
+  const relay = await new GLTFLoader().load('/assets/models/starfire-relay.glb');
+  // GLTFLoader registers imported nodes in relay.scene. Explicitly detach each
+  // root subtree before moving it into the larger technical preview scene.
+  for (const root of relay.roots) {
+    relay.scene.remove(root);
+    scene.add(root);
+  }
+  if (relay.warnings.length) console.warn('Starfire GLB import:', ...relay.warnings);
+  // PR 07: optional stress demo; 256 copies share a single geometry/material
+  // and render with one instanced draw per active pass rather than 256 draws.
+  const instanceMatrices = new Float32Array(256 * 16);
+  for (let n = 0; n < 256; n++) {
+    const x = n % 16, z = Math.floor(n / 16);
+    instanceMatrices.set(Mat4.compose([(x - 7.5) * 1.4, 0, (z - 7.5) * 1.4],
+      [0, (x + z) * 0.10, 0], [0.22, 0.22 + (n % 5) * 0.05, 0.22]), n * 16);
+  }
+  const stress = new Entity('PR 07 / Instancing performance demo').add('mesh',
+    new InstancedMesh(createBox(), new PBRMaterial({ color:[0.14,0.58,0.98,1],
+      metallic:0.65, roughness:0.34 }), instanceMatrices));
+  stress.transform.position = [0, 0.5, -8];
+  stress.visible = false;
+  scene.add(stress);
+  scene.performanceDemo = stress;
+  // The demo retains the decoded asset images for its lifetime.
   const rings = [];
   for (let i = 0; i < 12; i++) {
     const angle = 2 * Math.PI * i / 12;
@@ -49,6 +121,7 @@ function createScene() {
     cube(`Beacon ${x}/${z}`, [x, .82, z], [.39, .13, .39], [.32, .78, 1, 1]);
   }
   scene.addSystem((_scene, dt, elapsed) => {
+    orbitPivot.transform.rotation[1] -= dt * .34;
     rotating.transform.rotation[1] += dt * .42;
     rotating.transform.rotation[0] += dt * .11;
     inner.transform.rotation[0] -= dt * .34;
@@ -69,16 +142,75 @@ async function boot() {
       position: [10, 7, 13], target: [0, .65, 0], fov: 48, near: .1, far: 200
     });
     const controls = new OrbitControls(canvas, engine.camera, { distance: 16.5, azimuth: 0.54, elevation: 0.36 });
-    const scene = createScene();
+    const scene = await createScene();
     engine.scene = scene;
+    const exposure = $('exposure');
+    const exposureValue = $('exposureValue');
+    const updateExposure = () => {
+      scene.lighting.exposure = Number(exposure.value);
+      exposureValue.textContent = scene.lighting.exposure.toFixed(1);
+    };
+    exposure.addEventListener('input', updateExposure);
+    updateExposure();
+    const shadowToggle = $('shadowToggle');
+    shadowToggle.checked = scene.lighting.shadows.enabled;
+    shadowToggle.addEventListener('change', () => { scene.lighting.shadows.enabled = shadowToggle.checked; });
+    const envInput = $('environmentIntensity');
+    const envValue = $('environmentValue');
+    const updateEnvironment = () => {
+      scene.lighting.environment.intensity = Number(envInput.value);
+      envValue.textContent = scene.lighting.environment.intensity.toFixed(1);
+    };
+    envInput.addEventListener('input', updateEnvironment);
+    updateEnvironment();
+    const stressToggle = $('stressToggle');
+    stressToggle.addEventListener('change', () => {
+      scene.performanceDemo.visible = stressToggle.checked;
+    });
+    const cullingToggle = $('cullingToggle');
+    cullingToggle.checked = engine.renderer.cullingEnabled;
+    cullingToggle.addEventListener('change', () => {
+      engine.renderer.cullingEnabled = cullingToggle.checked;
+    });
+    const benchmarkButton = $('benchmarkBtn');
+    const benchmarkResult = $('benchmarkResult');
+    let bench = null;
+    benchmarkButton.addEventListener('click', () => {
+      bench = { start: performance.now(), frames: 0, fps: 0, cpu: 0 };
+      benchmarkButton.disabled = true;
+      benchmarkResult.textContent = 'Benchmark running — keep the camera still';
+    });
     $('renderer').textContent = engine.renderer.name.toUpperCase();
-    $('engineStatus').textContent = 'All systems operational';
-    engine.onStats = ({ fps, renderer, entities, drawCalls, triangles }) => {
+    $('engineStatus').textContent = 'All systems operational • Shadows / environment / GLB';
+    engine.onStats = ({ fps, renderer, entities, drawCalls, triangles,
+      shadowDrawCalls, culledMeshes, shadowCulled, visibleMeshes, instancesRendered,
+      cpuFrameMs, cpuUpdateMs, cpuRenderMs, resources }) => {
       $('fps').textContent = fps;
       $('renderer').textContent = renderer.toUpperCase();
       $('entities').textContent = entities;
       $('drawcalls').textContent = drawCalls;
+      $('shadowDraws').textContent = shadowDrawCalls;
       $('triangles').textContent = triangles.toLocaleString();
+      $('culledMeshes').textContent = `${culledMeshes} / ${shadowCulled}`;
+      $('cpuTime').textContent = `${cpuFrameMs.toFixed(1)} ms`;
+      $('instanceCount').textContent = instancesRendered.toLocaleString();
+      $('residentAssets').textContent = resources
+        ? `${resources.geometryResources} GEO / ${resources.textureResources} TEX` : '—';
+      $('gpuEstimate').textContent = resources
+        ? `${(resources.estimatedGPUBytes / (1024 * 1024)).toFixed(1)} MB` : '—';
+      $('cpuBreakdown').textContent = `Update ${cpuUpdateMs.toFixed(2)} ms · Render submission ${cpuRenderMs.toFixed(2)} ms · GPU time not measured`;
+      if (bench) {
+        bench.frames++;
+        bench.fps += fps;
+        bench.cpu += cpuFrameMs;
+        if (performance.now() - bench.start >= 5000) {
+          benchmarkResult.textContent = `${renderer}: ${Math.round(bench.fps / bench.frames)} FPS avg; ` +
+            `${(bench.cpu / bench.frames).toFixed(2)} ms CPU frame avg; ` +
+            `${drawCalls} main / ${shadowDrawCalls} shadow draws (latest sample)`;
+          benchmarkButton.disabled = false;
+          bench = null;
+        }
+      }
     };
     engine.onError = (error) => {
       $('engineStatus').textContent = 'Rendering error';

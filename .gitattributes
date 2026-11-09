@@ -1,0 +1,3 @@
+* text=auto
+*.wgsl text eol=lf
+*.glsl text eol=lf

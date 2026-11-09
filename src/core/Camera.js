@@ -7,6 +7,7 @@ export class PerspectiveCamera {
     this.far = far;
     this.position = [...position];
     this.target = [...target];
+    this.frustumCulling = true; // Opt-in for third-party camera implementations.
   }
   matrix(aspect, depthMode = 'webgpu') {
     return Mat4.multiply(
